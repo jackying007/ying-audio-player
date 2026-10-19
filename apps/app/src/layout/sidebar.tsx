@@ -1,0 +1,182 @@
+import { useEffect, useRef, useState } from 'react'
+import { useLocation, useNavigate } from '@tanstack/react-router'
+import { ChevronRight, Cloud, Folder, LoaderCircle, Play, Plus, RefreshCw, Settings } from 'lucide-react'
+import {
+  Sidebar,
+  SidebarContent,
+  SidebarGroup,
+  // SidebarGroupLabel,
+  // SidebarHeader,
+  SidebarMenu,
+  SidebarMenuAction,
+  SidebarMenuButton,
+  SidebarMenuItem,
+  SidebarMenuSub,
+  SidebarMenuSubButton,
+  SidebarMenuSubItem
+  // SidebarFooter,
+  // SidebarRail
+} from '@/components/ui/sidebar'
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
+import { useAppStore, importLocalFolder } from '@/store/app-store'
+import { usePlayerOpen } from '@/store/audio-store'
+import { playAllLocalAudios } from '@/store/local-audio-store'
+import { loadNetworkFolders, useNetworkAudioStore } from '@/store/network-audio-store'
+import { useNetworkSettings } from '@/store/network-settings'
+
+export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
+  const pathname = useLocation({ select: location => location.pathname })
+  const navigate = useNavigate()
+
+  const localFolderList = useAppStore(state => state.localFolderList)
+  const playerOpen = usePlayerOpen()
+  const importing = useAppStore(state => state.importing)
+  const loading = useAppStore(state => state.loading)
+  const inited = useAppStore(state => state.inited)
+  const [playingAll, setPlayingAll] = useState(false)
+  const [playAllError, setPlayAllError] = useState<string>()
+  const playAllPending = useRef(false)
+  const networkFolders = useNetworkAudioStore(state => state.folders)
+  const networkLoading = useNetworkAudioStore(state => state.loading)
+  const networkError = useNetworkAudioStore(state => state.error)
+  const serverUrl = useNetworkSettings(state => state.serverUrl)
+  const token = useNetworkSettings(state => state.token)
+  useEffect(() => {
+    if (serverUrl && token) void loadNetworkFolders()
+  }, [serverUrl, token])
+
+  async function handlePlayAll() {
+    if (playAllPending.current || !inited || loading || importing || !localFolderList.length) return
+    playAllPending.current = true
+    setPlayingAll(true)
+    setPlayAllError(undefined)
+    try {
+      await playAllLocalAudios()
+    } catch (error) {
+      setPlayAllError(error instanceof Error ? error.message : String(error))
+    } finally {
+      playAllPending.current = false
+      setPlayingAll(false)
+    }
+  }
+
+  return (
+    <Sidebar {...props}>
+      {/* <SidebarHeader>xx</SidebarHeader> */}
+      <SidebarContent>
+        <SidebarGroup>
+          {/* <SidebarGroupLabel>xx</SidebarGroupLabel> */}
+          <SidebarMenu>
+            <Collapsible defaultOpen className="group/collapsible">
+              <SidebarMenuItem>
+                <CollapsibleTrigger asChild>
+                  <SidebarMenuButton className="pr-16!">
+                    <Folder />
+                    <span>本地</span>
+                    <ChevronRight className="ml-auto transition-transform group-data-[state=open]/collapsible:rotate-90" />
+                  </SidebarMenuButton>
+                </CollapsibleTrigger>
+                <SidebarMenuAction
+                  className="right-8! disabled:pointer-events-none disabled:opacity-50"
+                  title="播放全部"
+                  disabled={!inited || loading || importing || playingAll || !localFolderList.length}
+                  onClick={handlePlayAll}
+                >
+                  {playingAll ? <LoaderCircle className="animate-spin" /> : <Play />}
+                </SidebarMenuAction>
+                <SidebarMenuAction
+                  disabled={importing || loading}
+                  aria-label="导入音乐文件夹"
+                  onClick={async () => {
+                    const folderId = await importLocalFolder()
+                    if (folderId == null) return
+                    void navigate({ to: '/local/$folderId', params: { folderId: String(folderId) } })
+                  }}
+                >
+                  {importing ? <LoaderCircle className="animate-spin" /> : <Plus />}
+                </SidebarMenuAction>
+                {playAllError && <p className="px-2 py-1 text-sm text-destructive break-all">{playAllError}</p>}
+                <CollapsibleContent>
+                  <SidebarMenuSub>
+                    {localFolderList?.map(el => (
+                      <SidebarMenuSubItem
+                        key={el.id}
+                        onClick={() => navigate({ to: '/local/$folderId', params: { folderId: String(el.id) } })}
+                      >
+                        <SidebarMenuSubButton className="cursor-pointer" isActive={`/local/${el.id}` === pathname}>
+                          {el.name}
+                        </SidebarMenuSubButton>
+                      </SidebarMenuSubItem>
+                    ))}
+                    {!localFolderList?.length && <p className="text-sm">暂无导入</p>}
+                  </SidebarMenuSub>
+                </CollapsibleContent>
+              </SidebarMenuItem>
+            </Collapsible>
+            <Collapsible defaultOpen className="group/network">
+              <SidebarMenuItem>
+                <CollapsibleTrigger asChild>
+                  <SidebarMenuButton className="pr-16!">
+                    <Cloud />
+                    <span>网络</span>
+                    <ChevronRight className="ml-auto transition-transform group-data-[state=open]/network:rotate-90" />
+                  </SidebarMenuButton>
+                </CollapsibleTrigger>
+                <SidebarMenuAction
+                  className="right-8!"
+                  aria-label="刷新网络文件夹"
+                  disabled={networkLoading || !serverUrl || !token}
+                  onClick={() => void loadNetworkFolders()}
+                >
+                  {networkLoading ? <LoaderCircle className="animate-spin" /> : <RefreshCw />}
+                </SidebarMenuAction>
+                <CollapsibleContent>
+                  <SidebarMenuSub>
+                    {networkFolders.map(folder => (
+                      <SidebarMenuSubItem key={folder.id}>
+                        <SidebarMenuSubButton
+                          className="cursor-pointer"
+                          isActive={pathname === `/network/${folder.id}`}
+                          onClick={() =>
+                            void navigate({ to: '/network/$folderId', params: { folderId: String(folder.id) } })
+                          }
+                        >
+                          {folder.name}
+                        </SidebarMenuSubButton>
+                      </SidebarMenuSubItem>
+                    ))}
+                    {(!serverUrl || !token) && (
+                      <SidebarMenuSubButton
+                        className="cursor-pointer"
+                        onClick={() => void navigate({ to: '/settings' })}
+                      >
+                        请先配置服务端
+                      </SidebarMenuSubButton>
+                    )}
+                    {serverUrl && token && !networkLoading && !networkError && !networkFolders.length && (
+                      <p className="text-sm">暂无同步的文件夹</p>
+                    )}
+                    {networkError && (
+                      <p role="alert" className="text-sm text-destructive break-all">
+                        {networkError}
+                      </p>
+                    )}
+                  </SidebarMenuSub>
+                </CollapsibleContent>
+              </SidebarMenuItem>
+            </Collapsible>
+            <SidebarMenuItem>
+              <SidebarMenuButton isActive={pathname === '/settings'} onClick={() => void navigate({ to: '/settings' })}>
+                <Settings />
+                <span>App 设置</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          </SidebarMenu>
+        </SidebarGroup>
+      </SidebarContent>
+      {/* <SidebarFooter>xx</SidebarFooter>
+      <SidebarRail /> */}
+      {playerOpen && <div className="h-20" />}
+    </Sidebar>
+  )
+}

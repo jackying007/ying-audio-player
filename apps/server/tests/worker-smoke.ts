@@ -1,0 +1,77 @@
+// Run only against a disposable local Worker with its own --persist-to directory.
+export {}
+const origin = process.env.MUSIC_SMOKE_URL ?? 'http://127.0.0.1:8788'
+if (!['localhost', '127.0.0.1'].includes(new URL(origin).hostname))
+  throw new Error('Smoke tests require a local Worker')
+const base = `${origin}/api`
+const headers = { Authorization: `Bearer ${process.env.MUSIC_SMOKE_TOKEN ?? 'local-smoke-key'}` }
+
+async function request(path: string, method = 'GET', body?: object | string) {
+  const response = await fetch(base + path, {
+    method,
+    headers: { ...headers, ...(typeof body === 'object' ? { 'Content-Type': 'application/json' } : {}) },
+    body: body === undefined ? undefined : typeof body === 'object' ? JSON.stringify(body) : body
+  })
+  if (!response.ok) throw new Error(`${path}: ${response.status} ${await response.text()}`)
+  return response.json() as Promise<Record<string, any>>
+}
+const folder = await request('/folders', 'POST', { name: 'Worker smoke test' })
+const metadata = {
+  filename: 'smoke.mp3',
+  name: 'Smoke',
+  title: 'Metadata roundtrip',
+  artist: 'Test',
+  durationMs: 1000,
+  fileSize: 5,
+  hasLyrics: true,
+  coverMime: 'image/jpeg'
+}
+const hash = (value: string) => new Bun.CryptoHasher('sha256').update(value).digest('hex')
+const hashes = { audio: hash('music'), lyrics: hash('[00:01]lyrics'), cover: hash('image') }
+const upload = await request(`/folders/${folder.id}/uploads`, 'POST', { ...metadata, hashes })
+await request(`/uploads/${upload.id}/audio`, 'PUT', 'music')
+await request(`/uploads/${upload.id}/lyrics`, 'PUT', '[00:01]lyrics')
+await request(`/uploads/${upload.id}/cover`, 'PUT', 'image')
+const duplicate = await fetch(`${base}/uploads/${upload.id}/audio`, { method: 'PUT', headers, body: 'music' })
+if (duplicate.status !== 409) throw new Error('Staged objects must be immutable')
+await request(`/uploads/${upload.id}/commit`, 'POST')
+const same = await request(`/folders/${folder.id}/uploads`, 'POST', { ...metadata, hashes })
+if (!same.unchanged || same.requiredFiles.length) throw new Error('Unchanged song was not skipped')
+const lyricsUpdate = await request(`/folders/${folder.id}/uploads`, 'POST', {
+  ...metadata,
+  hashes: { ...hashes, lyrics: hash('updated lyrics') }
+})
+if (JSON.stringify(lyricsUpdate.requiredFiles) !== '["lyrics"]') throw new Error('Unchanged files were not reused')
+await request(`/uploads/${lyricsUpdate.id}/lyrics`, 'PUT', 'updated lyrics')
+await request(`/uploads/${lyricsUpdate.id}/commit`, 'POST')
+const bad = await request(`/folders/${folder.id}/uploads`, 'POST', {
+  ...metadata,
+  filename: 'invalid.mp3',
+  hasLyrics: false,
+  coverMime: null,
+  hashes: { audio: hashes.audio, lyrics: null, cover: null }
+})
+const badChecksum = await fetch(`${base}/uploads/${bad.id}/audio`, { method: 'PUT', headers, body: 'other' })
+if (badChecksum.status !== 400)
+  throw new Error(`Expected checksum rejection, got ${badChecksum.status}: ${await badChecksum.text()}`)
+const rows = await request(`/folders/${folder.id}/audios`)
+const response = await fetch(`${base}/audios/${rows[0].id}/audio`, { headers })
+if ((await response.text()) !== 'music' || rows[0].title !== metadata.title)
+  throw new Error('Audio or metadata did not roundtrip')
+await request(`/uploads/${upload.id}/commit`, 'POST')
+const next = await request(`/folders/${folder.id}/uploads`, 'POST', {
+  ...metadata,
+  hasLyrics: false,
+  coverMime: null,
+  hashes: { audio: hashes.audio, lyrics: null, cover: null }
+})
+if (next.requiredFiles.length) throw new Error('Metadata-only change should reuse the audio')
+await request(`/uploads/${next.id}/commit`, 'POST')
+const updated = await request(`/folders/${folder.id}/audios`)
+if (updated.length !== 1 || updated[0].hasLyrics || updated[0].coverMime)
+  throw new Error('Replacement did not clear optional files')
+const cleanup = await fetch(`${origin}/__scheduled`)
+if (!cleanup.ok) throw new Error(`Scheduled cleanup failed: ${await cleanup.text()}`)
+console.log(
+  'Worker/D1/R2 smoke passed: hashes, skip, partial upload, checksum verification, replacement, idempotency, cleanup.'
+)

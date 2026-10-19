@@ -1,0 +1,80 @@
+import { createFileRoute } from '@tanstack/react-router'
+
+export const Route = createFileRoute('/test')({ component: TestPage })
+
+function TestPage() {
+  return (
+    <p>
+      <ruby>
+        私
+        <rt>
+          <ruby>
+            わ<rt>wa</rt>
+          </ruby>
+          <ruby>
+            た<rt>ta</rt>
+          </ruby>
+          <ruby>
+            し<rt>si</rt>
+          </ruby>
+        </rt>
+      </ruby>
+      &emsp;
+      <ruby>
+        は<rt>ha</rt>
+      </ruby>
+      &emsp;
+      <ruby>
+        音
+        <rt>
+          <ruby>
+            お<rt>o</rt>
+          </ruby>
+          <ruby>
+            ん<rt>n</rt>
+          </ruby>
+        </rt>
+      </ruby>
+      &emsp;&emsp;
+      <ruby>
+        楽
+        <rt>
+          <ruby>
+            が<rt>ga</rt>
+          </ruby>
+          <ruby>
+            く<rt>ku</rt>
+          </ruby>
+        </rt>
+      </ruby>
+      &emsp;
+      <ruby>
+        プ<rt>pu</rt>
+      </ruby>
+      &emsp;
+      <ruby>
+        レ<rt>re</rt>
+      </ruby>
+      &emsp;
+      <ruby>
+        ー<rt>-</rt>
+      </ruby>
+      &emsp;
+      <ruby>
+        ヤ<rt>ya</rt>
+      </ruby>
+      &emsp;
+      <ruby>
+        ー<rt>-</rt>
+      </ruby>
+      &emsp;
+      <ruby>
+        で<rt>de</rt>
+      </ruby>
+      &emsp;
+      <ruby>
+        す<rt>su</rt>
+      </ruby>
+    </p>
+  )
+}

@@ -1,0 +1,25 @@
+{
+  "dev": {
+    "ip": "0.0.0.0",
+    "port": 8787
+  },
+  "name": "ying-audio-player",
+  "main": "src/main.ts",
+  "compatibility_date": "2026-10-18",
+  "triggers": { "crons": ["0 * * * *"] },
+  "d1_databases": [
+    {
+      "binding": "D1",
+      "database_name": "ying-audio-player",
+      "database_id": "4337e10e-42fc-4c63-9564-9e775078463b",
+      "migrations_dir": "drizzle",
+      "migrations_pattern": "drizzle/*/migration.sql"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "R2",
+      "bucket_name": "ying-audio-player"
+    }
+  ]
+}

@@ -1,0 +1,29 @@
+# IDE - VSCode
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+
+# Build Outputs
+build
+out
+dist
+
+# Dependencies
+node_modules
+
+# Turbo
+.turbo
+
+# Local env files
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+.tanstack
+
+# Misc
+.DS_Store
+*.pem

@@ -1,0 +1,380 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "id": "30e1e9ea-11f2-4a8c-af9b-bcdd78d21c6d",
+  "prevIds": [
+    "00000000-0000-0000-0000-000000000000"
+  ],
+  "ddl": [
+    {
+      "name": "audioGarbage",
+      "entityType": "tables"
+    },
+    {
+      "name": "audioUploads",
+      "entityType": "tables"
+    },
+    {
+      "name": "audios",
+      "entityType": "tables"
+    },
+    {
+      "name": "folders",
+      "entityType": "tables"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "key",
+      "entityType": "columns",
+      "table": "audioGarbage"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "id",
+      "entityType": "columns",
+      "table": "audioUploads"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "folderId",
+      "entityType": "columns",
+      "table": "audioUploads"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "filename",
+      "entityType": "columns",
+      "table": "audioUploads"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "metadata",
+      "entityType": "columns",
+      "table": "audioUploads"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "audioKey",
+      "entityType": "columns",
+      "table": "audioUploads"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "lyricsKey",
+      "entityType": "columns",
+      "table": "audioUploads"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "coverKey",
+      "entityType": "columns",
+      "table": "audioUploads"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "audioHash",
+      "entityType": "columns",
+      "table": "audioUploads"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "lyricsHash",
+      "entityType": "columns",
+      "table": "audioUploads"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "coverHash",
+      "entityType": "columns",
+      "table": "audioUploads"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "createdAt",
+      "entityType": "columns",
+      "table": "audioUploads"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "0",
+      "generated": null,
+      "name": "committed",
+      "entityType": "columns",
+      "table": "audioUploads"
+    },
+    {
+      "type": "integer",
+      "notNull": false,
+      "autoincrement": true,
+      "default": null,
+      "generated": null,
+      "name": "id",
+      "entityType": "columns",
+      "table": "audios"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "folderId",
+      "entityType": "columns",
+      "table": "audios"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "filename",
+      "entityType": "columns",
+      "table": "audios"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "metadata",
+      "entityType": "columns",
+      "table": "audios"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "version",
+      "entityType": "columns",
+      "table": "audios"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "audioKey",
+      "entityType": "columns",
+      "table": "audios"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "lyricsKey",
+      "entityType": "columns",
+      "table": "audios"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "coverKey",
+      "entityType": "columns",
+      "table": "audios"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "audioHash",
+      "entityType": "columns",
+      "table": "audios"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "lyricsHash",
+      "entityType": "columns",
+      "table": "audios"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "coverHash",
+      "entityType": "columns",
+      "table": "audios"
+    },
+    {
+      "type": "integer",
+      "notNull": false,
+      "autoincrement": true,
+      "default": null,
+      "generated": null,
+      "name": "id",
+      "entityType": "columns",
+      "table": "folders"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "name",
+      "entityType": "columns",
+      "table": "folders"
+    },
+    {
+      "columns": [
+        "folderId"
+      ],
+      "tableTo": "folders",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "NO ACTION",
+      "nameExplicit": false,
+      "name": "fk_audioUploads_folderId_folders_id_fk",
+      "entityType": "fks",
+      "table": "audioUploads"
+    },
+    {
+      "columns": [
+        "folderId"
+      ],
+      "tableTo": "folders",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "NO ACTION",
+      "nameExplicit": false,
+      "name": "fk_audios_folderId_folders_id_fk",
+      "entityType": "fks",
+      "table": "audios"
+    },
+    {
+      "columns": [
+        "key"
+      ],
+      "nameExplicit": false,
+      "name": "audioGarbage_pk",
+      "table": "audioGarbage",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "name": "audioUploads_pk",
+      "table": "audioUploads",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "name": "audios_pk",
+      "table": "audios",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "name": "folders_pk",
+      "table": "folders",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        {
+          "value": "folderId",
+          "isExpression": false
+        },
+        {
+          "value": "filename",
+          "isExpression": false
+        }
+      ],
+      "isUnique": true,
+      "where": null,
+      "origin": "manual",
+      "name": "audioIndex",
+      "entityType": "indexes",
+      "table": "audios"
+    },
+    {
+      "columns": [
+        "name"
+      ],
+      "nameExplicit": false,
+      "name": "folders_name_unique",
+      "entityType": "uniques",
+      "table": "folders"
+    }
+  ],
+  "renames": []
+}
