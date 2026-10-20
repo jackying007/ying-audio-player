@@ -3,6 +3,7 @@ import { readFile, readTextFile } from '@tauri-apps/plugin-fs'
 import { useAppStore } from './app-store'
 import { PlaybackQueue, playModes, type PlaybackAction } from '@/lib/playback-queue'
 import { networkFile } from '@/lib/network-audio'
+import { networkCacheKey, readNetworkCache, saveNetworkCache, type NetworkCacheKey } from '@/lib/network-cache'
 import { useNetworkSettings } from './network-settings'
 
 export enum ShowMode {
@@ -20,6 +21,9 @@ export enum PlayState {
 
 export type AudioInfo = {
   source?: 'local' | 'network'
+  filename?: string
+  version?: string
+  folderName?: string
   coverLink?: string
   id: number
   folderId: number
@@ -94,12 +98,37 @@ const audio = new Audio()
 
 type CachedData = {
   objectUrl: string
+  blob: Blob
   lrc?: string
   folderId: number
   source: 'local' | 'network'
   warning?: string
+  cacheKey?: NetworkCacheKey
+  saved?: boolean
+  saving?: Promise<void>
 }
 export const cachedMap = new Map<string, CachedData>()
+
+function saveInBackground(link: string, cached: CachedData) {
+  if (!cached.cacheKey || cached.saved || cached.saving || (cached.cacheKey.hasLyrics && cached.lrc === undefined)) {
+    return
+  }
+  cached.saving = saveNetworkCache(cached.cacheKey, cached.blob, cached.lrc)
+    .then(() => {
+      cached.saved = true
+      cached.warning = undefined
+    })
+    .catch(() => {
+      cached.warning = '本地缓存保存失败，本次仍可播放'
+    })
+    .finally(() => {
+      cached.saving = undefined
+      // A completed save must not change a different song or a new connection.
+      if (cachedMap.get(link) === cached && useAudioStore.getState().currentAudioInfo?.link === link) {
+        useAudioStore.setState({ warning: cached.warning })
+      }
+    })
+}
 function clearCachedObjectUrl() {
   for (const [link, { objectUrl }] of cachedMap.entries()) {
     if (objectUrl !== audio.src) {
@@ -193,43 +222,64 @@ const startAudio = async (audioInfo: AudioInfo, playlist?: Pick<AudioStore, 'aud
   })
   try {
     let cached = cachedMap.get(audioInfo.link)
-    if (cached?.warning && audioInfo.source === 'network' && audioInfo.hasLyrics) {
+    if (cached?.warning && audioInfo.source === 'network') {
       try {
-        const lrc = await (await networkFile(audioInfo.lrcLink, controller.signal)).text()
+        cached.cacheKey ??= await networkCacheKey(audioInfo)
+        controller.signal.throwIfAborted()
+        if (audioInfo.hasLyrics && cached.lrc === undefined) {
+          cached.lrc = await (await networkFile(audioInfo.lrcLink, controller.signal)).text()
+        }
         if (request !== playRequest) return
-        cached.lrc = lrc
         cached.warning = undefined
       } catch {
-        /* Retain audio playback and the existing warning. */
+        cached.warning =
+          audioInfo.hasLyrics && cached.lrc === undefined
+            ? '歌词加载失败，请重试播放'
+            : '本地缓存保存失败，本次仍可播放'
       }
     }
     if (!cached) {
       const remote = audioInfo.source === 'network'
       let warning: string | undefined
-      const [audioFile, lrc] = await Promise.all([
-        remote
-          ? networkFile(audioInfo.link, controller.signal)
-              .then(response => response.arrayBuffer())
-              .then(bytes => new Uint8Array(bytes))
-          : readFile(audioInfo.link),
-        audioInfo.hasLyrics
-          ? remote
-            ? networkFile(audioInfo.lrcLink, controller.signal)
-                .then(response => response.text())
-                .catch(() => {
-                  warning = '歌词加载失败，请重试播放'
-                  return undefined
-                })
-            : readLrc(audioInfo.lrcLink)
-          : Promise.resolve(undefined)
-      ])
+      const key = remote
+        ? await networkCacheKey(audioInfo).catch(() => {
+            warning = '本地缓存不可用，本次仍可播放'
+            return undefined
+          })
+        : undefined
+      controller.signal.throwIfAborted()
+      const disk = key ? await readNetworkCache(key) : undefined
+      controller.signal.throwIfAborted()
+      const [audioFile, lrc] = disk
+        ? ([disk.audioFile, disk.lrc] as const)
+        : await Promise.all([
+            remote
+              ? networkFile(audioInfo.link, controller.signal)
+                  .then(response => response.arrayBuffer())
+                  .then(bytes => new Uint8Array(bytes))
+              : readFile(audioInfo.link),
+            audioInfo.hasLyrics
+              ? remote
+                ? networkFile(audioInfo.lrcLink, controller.signal)
+                    .then(response => response.text())
+                    .catch(() => {
+                      warning = '歌词加载失败，请重试播放'
+                      return undefined
+                    })
+                : readLrc(audioInfo.lrcLink)
+              : Promise.resolve(undefined)
+          ])
       if (request !== playRequest) return
+      const blob = new Blob([audioFile], { type: audioInfo.type })
       cached = {
-        objectUrl: URL.createObjectURL(new Blob([audioFile], { type: audioInfo.type })),
+        objectUrl: URL.createObjectURL(blob),
+        blob,
         lrc,
         folderId: audioInfo.folderId,
         source: remote ? 'network' : 'local',
-        warning
+        warning,
+        cacheKey: key,
+        saved: !!disk
       }
       cachedMap.set(audioInfo.link, cached)
     }
@@ -243,6 +293,7 @@ const startAudio = async (audioInfo: AudioInfo, playlist?: Pick<AudioStore, 'aud
     audio.volume = useAppStore.getState().volume
     useAudioStore.setState({ currentLrc: cached.lrc, warning: cached.warning })
     await audio.play()
+    if (request === playRequest) saveInBackground(audioInfo.link, cached)
     return request === playRequest
   } catch (error) {
     if (request !== playRequest) return false

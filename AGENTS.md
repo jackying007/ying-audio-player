@@ -7,7 +7,7 @@ Bun workspace + Turborepo，包含 Tauri 桌面播放器和 Cloudflare 音乐服
 - `apps/app`：Tauri 2、React 19、TypeScript、Vite、TanStack Router、Zustand、Tailwind CSS 4、shadcn/Radix。
 - 本地索引：`apps/app/src-tauri/src/local_audio.rs`；IPC：`src/lib/local-audio.ts`；文件夹与扫描：`src/store/app-store.ts`、`local-audio-store.ts`。
 - 播放：`src/store/audio-store.ts`、`src/lib/playback-queue.ts`、`src/layout/audio-player`；共用歌曲列表：`src/routes/-shared/audio-list.tsx`。
-- 网络：`src/lib/network-audio.ts`、`file-hash.ts`、`src/store/network-audio-store.ts`、`network-settings.ts`；页面：`src/routes/local`、`network`、`settings.tsx`。
+- 网络：`src/lib/network-audio.ts`、`network-cache.ts`、`file-hash.ts`、`src/store/network-audio-store.ts`、`network-settings.ts`；磁盘缓存：`src-tauri/src/network_cache.rs`；页面：`src/routes/local`、`network`、`settings.tsx`。
 - `apps/server`：Workers + Hono + Drizzle + D1 + 私有 R2。入口 `src/main.ts` 管理鉴权、CORS、中间件和定时任务；`src/business/index.ts` 定义接口，`metadata.ts` 校验元数据，`cleanup.ts` 清理文件。
 
 ## 组件放置约定
@@ -51,6 +51,8 @@ Tauri 自动启动 Vite 并打开窗口。Vite 固定使用 `http://localhost:14
 - 分别计算音频、歌词、封面的 SHA-256；创建上传时由服务端返回 `requiredFiles` 和 `unchanged`。只传变化、hash 缺失或云端缺失的文件；仅元数据变化时复用对象，完全一致时跳过。R2 校验实际上传内容。
 - 同步逐首执行并显示成功、跳过及失败数量；普通文件失败继续，鉴权失败停止。同一文件夹同步期间禁用重复同步和刷新。索引声明有歌词却读取失败时，该歌曲同步失败；无歌词或封面时覆盖会清除旧关联。
 - 网络播放携带 Bearer 密钥下载完整音频，再转为 Blob 播放；封面按需加载，歌词或封面失败不阻止音频。音频上限 50 MiB、歌词 1 MiB、封面 10 MiB。
+- 网络歌曲按「内存 → 磁盘 → 网络」读取。音频和所需歌词下载完毕后，先生成 Blob 开始播放，再通过二进制 IPC 在后台保存到**可执行文件同目录**的 `network/<歌曲文件夹名>/<原始文件名>`，同目录保存同名 LRC；保留中文、空格、扩展名大小写，仅处理文件系统非法名称。开发时通常位于 `apps/app/src-tauri/target/debug/network`，目录需可写。版本、连接摘要及完成标记单独保存在程序旁的 `.network-cache` 中，不在歌曲目录添加 ID、版本或摘要层级；连接摘要不含明文密钥，不同连接的同路径文件覆盖保存，但只匹配当前连接的缓存。
+- 磁盘缓存按列表已有 `version` 匹配，不额外请求版本。命中时不请求音频与歌词；文件夹、歌曲列表和封面仍联网，暂不支持完整离线浏览。新版本覆盖原文件，无歌词时删除旧 LRC。缓存使用临时文件和完成标记；文件缺失、长度不符或读取失败时重新下载。无歌词歌曲仅保存音频；歌词下载失败时播放音频并警告，不发布完整缓存；保存失败不阻止本次播放。可手动删除 `network` 和 `.network-cache` 清理缓存。
 - 本地和网络共用暂停、上一首/下一首、顺序/随机/单曲循环、进度、音量及歌词。保留请求序号防竞态、来源隔离、缓存失效和 Blob URL 回收；覆盖当前歌曲后同步更新当前条目及队列版本。
 - 地址和密钥保存在 localStorage 的 `ying-audio-player-network`；音量和模式保存在 `ying-audio-player-settings`。修改连接配置时终止旧网络请求、停止网络播放并释放网络缓存，本地播放不受影响。
 

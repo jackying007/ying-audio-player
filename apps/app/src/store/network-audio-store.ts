@@ -63,7 +63,13 @@ export async function loadNetworkAudios(id: string) {
   try {
     const rows = await audioJson<NetworkAudio[]>(`/folders/${encodeURIComponent(id)}/audios`)
     if (audioRequests.get(id) !== request) return
-    const audios = rows.map(toNetworkAudio)
+    let folderName = useNetworkAudioStore.getState().folders.find(folder => folder.id === Number(id))?.name
+    if (!folderName) {
+      await loadNetworkFolders()
+      if (audioRequests.get(id) !== request) return
+      folderName = useNetworkAudioStore.getState().folders.find(folder => folder.id === Number(id))?.name
+    }
+    const audios = rows.map(row => ({ ...toNetworkAudio(row), folderName }))
     updateEntry(id, { audios })
     const player = useAudioStore.getState()
     if (player.playlistFolderId === Number(id) && player.currentAudioInfo?.source === 'network') {
