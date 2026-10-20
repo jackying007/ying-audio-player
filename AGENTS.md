@@ -64,6 +64,7 @@ Tauri 自动启动 Vite 并打开窗口。Vite 固定使用 `http://localhost:14
 - `audioGarbage` 仅保存待删除 R2 key。每小时清理替换的旧文件及超过 24 小时的上传记录/暂存对象；删除前检查当前歌曲和未过期待提交上传的引用，删除失败保留队列重试。R2 桶保持私有。
 - 数据库访问由 `src/db/middleware.ts` 配置的 Drizzle 实例提供；接口通过 `c.get('db')` 获取，定时任务通过 `createDb` 初始化。
 - `business/base.validator.ts` 提供路由参数校验，数值 ID 为正安全整数，上传 ID 为 UUID；`app.error.handler.ts` 统一处理 HTTP 异常。
+- 服务端请求的 Zod schema 校验统一使用 `business/base.validator.ts` 导出的 `zValidator` 中间件，通过 `c.req.valid(...)` 获取校验后的数据；不要在路由中手写 `safeParse` / `parse` 及校验错误处理。
 - 服务端通过 `API_TOKEN` 校验 Bearer 密钥，本地配置位于 `.env`，示例为 `.env.example`。鉴权与 CORS 在 `main.ts`，放行开发浏览器/Tauri 来源的预检；实际密钥不写入文档、日志或提交。
 
 ## 验证与维护

@@ -1,10 +1,11 @@
 import { Hono } from 'hono'
+import { z } from 'zod'
 import { HTTPException } from 'hono/http-exception'
 import { and, asc, eq, exists, gte, isNotNull, sql } from 'drizzle-orm'
 import { alias } from 'drizzle-orm/sqlite-core'
 import type { AppEnv } from '@/db'
 import { audioGarbage, audios, audioUploads, folders } from '@/db/schema'
-import { paramId } from './base.validator'
+import { paramId, zValidator } from './base.validator'
 import { uploadMetadata, fileName, objectKey, uploadLimits, type AudioMetadata, type FileKind } from './metadata'
 
 type StoredAudio = typeof audios.$inferSelect
@@ -21,15 +22,11 @@ export const api = new Hono<AppEnv>()
 api.get('/folders', async c =>
   c.json(await c.get('db').select().from(folders).orderBy(asc(folders.name), asc(folders.id)))
 )
-api.post('/folders', async c => {
-  const body = await c.req.json().catch(() => {
-    throw new HTTPException(400, { message: '无效 JSON' })
-  })
-  const result = fileName.safeParse(body?.name)
-  if (!result.success) throw new HTTPException(400, { message: '无效文件夹名称' })
+api.post('/folders', zValidator('json', z.object({ name: fileName })), async c => {
+  const { name } = c.req.valid('json')
   const db = c.get('db')
-  await db.insert(folders).values({ name: result.data }).onConflictDoNothing()
-  return c.json(await db.select().from(folders).where(eq(folders.name, result.data)).get())
+  await db.insert(folders).values({ name }).onConflictDoNothing()
+  return c.json(await db.select().from(folders).where(eq(folders.name, name)).get())
 })
 api.get('/folders/:id/audios', paramId, async c => {
   const { id } = c.req.valid('param')
@@ -43,19 +40,13 @@ api.get('/folders/:id/audios', paramId, async c => {
     .orderBy(sql`${audios.filename} collate nocase`, asc(audios.id))
   return c.json(rows.map(publicAudio))
 })
-api.post('/folders/:id/uploads', paramId, async c => {
+api.post('/folders/:id/uploads', paramId, zValidator('json', uploadMetadata), async c => {
   const { id: folderId } = c.req.valid('param')
   const db = c.get('db')
-  const parsed = uploadMetadata.safeParse(
-    await c.req.json().catch(() => {
-      throw new HTTPException(400, { message: '无效 JSON' })
-    })
-  )
-  if (!parsed.success) throw new HTTPException(400, { message: parsed.error.issues[0]?.message ?? '无效元数据' })
   if (!(await db.select({ id: folders.id }).from(folders).where(eq(folders.id, folderId)).get()))
     throw new HTTPException(404, { message: '文件夹不存在' })
   const id = crypto.randomUUID()
-  const { hashes, ...metadata } = parsed.data
+  const { hashes, ...metadata } = c.req.valid('json')
   const serialized = JSON.stringify(metadata)
   const existing = await db
     .select()
