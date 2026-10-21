@@ -15,6 +15,17 @@ Bun workspace + Turborepo，包含 Tauri 桌面播放器和 Cloudflare 音乐服
 - 新增业务组件放在 `apps/app/src/routes` 下，与对应页面就近维护；页面专用组件放在对应路由的 `-` 前缀目录中，跨页面共用的业务组件放在 `src/routes/-shared`，避免被 TanStack Router 识别为路由。
 - `apps/app/src/components` 仅放与业务无关的通用组件和 UI 基础组件，不放业务组件；歌曲列表 `audio-list`、歌曲封面 `audio-cover` 等属于业务组件。
 
+## App 端 API 编写约定
+
+- 服务端 HTTP 请求统一使用 `@jying/http`，业务调用从 `@/api` 导入。当前网络接口全部集中在 `apps/app/src/api/business/network.ts`，统一导出 `networkApi`；新增网络接口继续放在此文件。
+- 沿用现有工厂格式：业务文件默认导出接收 `HttpRequest` 的函数，返回接口方法对象；`api/index.ts` 通过动态导入加载工厂并注入 `http-client.ts` 的共享 `http` 实例。请求与响应类型统一放在 `api/types.ts`。
+- 接口方法按行为命名，如 `listFolders`、`createFolder`、`createUpload`、`commitUpload`；媒体下载使用 `getAudio`、`getLyrics`、`getCover`。
+- 业务方法使用相对 API 路径（如 `/folders`）；`http-client.ts` 统一从当前 App 设置读取服务端地址和密钥，拼接服务端地址及 `/api`、添加 Bearer 鉴权。收到现有歌曲条目的完整媒体 URL 时，先通过 `mediaPath` 校验属于当前服务端并提取相对路径，保留版本参数。
+- JSON 请求体使用库的 `data`，查询参数使用 `query`，二进制上传使用 `body`。媒体方法通过 `responseType` 直接返回音频 `ArrayBuffer`、歌词文本或封面 `Blob`，调用方直接使用解析后的数据。
+- 服务端错误统一为文本；`afterError` 使用 `Response.text()` 读取错误消息，空内容使用带状态码的默认提示，构造保留 `status`、`statusText` 的 `HttpError`。业务按需检查 `HttpError.status`。
+- `signal` 仅在调用方实际需要取消请求时添加并透传，如播放、封面加载和同步；`listFolders`、`listAudios` 保持无 `signal` 参数。连接级取消统一由 `http-client.ts` 维护，与调用方信号合并；地址或密钥变化时取消旧连接请求。
+- Store 和组件负责业务编排、状态与缓存，接口路径、请求发送及响应解析集中在 API 层；新增或调整接口时同步更新调用处及相关网络测试，测试中的错误响应也使用文本。
+
 ## 安装与启动
 
 根目录执行 `bun install`，使用 `package.json` 指定的 Bun 和 `bun.lock`。桌面开发需 Rust/Cargo、MSVC C++ 构建工具及 WebView2，首次构建需要下载 Rust 依赖。
