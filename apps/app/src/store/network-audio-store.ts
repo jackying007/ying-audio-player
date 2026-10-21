@@ -103,6 +103,34 @@ export async function playNetworkAudio(audio: AudioInfo, folderId: string) {
   const audios = useNetworkAudioStore.getState().entries[folderId]?.audios
   if (audios) await playAudio(audio, { audioList: audios, playlistFolderId: Number(folderId) })
 }
+
+export async function playAllNetworkAudios() {
+  const signal = connectionSignal()
+  const { folders } = useNetworkAudioStore.getState()
+  try {
+    const folderAudios = await Promise.all(
+      folders.map(async folder => {
+        const rows = await networkApi.listAudios(String(folder.id))
+        return rows.map(row => ({ ...toNetworkAudio(row), folderName: folder.name }))
+      })
+    )
+    if (signal.aborted) return
+    const { folders: currentFolders, removingFolders } = useNetworkAudioStore.getState()
+    const audioList = folderAudios
+      .flat()
+      .filter(
+        audio =>
+          currentFolders.some(folder => folder.id === audio.folderId) &&
+          !removingFolders.some(folder => folder.id === audio.folderId)
+      )
+    const firstAudio = audioList[0]
+    if (!firstAudio) throw new Error('暂无可播放的音乐')
+    await playAudio(firstAudio, { audioList, playlistFolderId: undefined })
+  } catch (error) {
+    if (!signal.aborted) throw error
+  }
+}
+
 useNetworkSettings.subscribe((state, previous) => {
   if (state.serverUrl === previous.serverUrl && state.token === previous.token) return
   ++folderRequest

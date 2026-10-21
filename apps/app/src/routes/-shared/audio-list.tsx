@@ -69,7 +69,7 @@ export function AudioList({ audios, onPlay }: { audios: AudioInfo[]; onPlay: (au
                 <div>{formatDuration(audio.durationMs)}</div>
                 <div>{formatSize(audio.fileSize)}</div>
               </div>
-              <Button variant="ghost" size="icon-sm" aria-label="更多操作">
+              <Button variant="ghost" size="icon-sm">
                 <Ellipsis />
               </Button>
             </div>

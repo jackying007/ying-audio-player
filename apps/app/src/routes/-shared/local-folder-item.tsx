@@ -58,7 +58,6 @@ export function LocalFolderItem({
         variant="ghostDestructive"
         size="icon-sm"
         className="absolute right-1 top-0.5 size-7 text-muted-foreground opacity-0 group-hover/local-folder:opacity-100 group-focus-within/local-folder:opacity-100 disabled:opacity-0 group-hover/local-folder:disabled:opacity-50 group-focus-within/local-folder:disabled:opacity-50"
-        aria-label={`删除文件夹 ${folder.name}`}
         title="移除导入记录，保留原文件"
         disabled={busy || refreshing || syncing || confirming}
         onClick={() => void handleRemove()}

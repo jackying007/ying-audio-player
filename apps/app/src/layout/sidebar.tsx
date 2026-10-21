@@ -21,10 +21,11 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import { useAppStore, importLocalFolder } from '@/store/app-store'
 import { usePlayerOpen } from '@/store/audio-store'
 import { playAllLocalAudios } from '@/store/local-audio-store'
-import { loadNetworkFolders, useNetworkAudioStore } from '@/store/network-audio-store'
+import { loadNetworkFolders, playAllNetworkAudios, useNetworkAudioStore } from '@/store/network-audio-store'
 import { useNetworkSettings } from '@/store/network-settings'
 import { LocalFolderItem } from '@/routes/-shared/local-folder-item'
 import { NetworkFolderItem } from '@/routes/-shared/network-folder-item'
+import { connectionSignal } from '@/api'
 
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const pathname = useLocation({ select: location => location.pathname })
@@ -44,6 +45,9 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const [playingAll, setPlayingAll] = useState(false)
   const [playAllError, setPlayAllError] = useState<string>()
   const playAllPending = useRef(false)
+  const [playingAllNetwork, setPlayingAllNetwork] = useState(false)
+  const [networkPlayAllError, setNetworkPlayAllError] = useState<{ message: string; signal: AbortSignal }>()
+  const networkPlayAllPending = useRef(false)
   const networkFolders = useNetworkAudioStore(state => state.folders)
   const networkLoading = useNetworkAudioStore(state => state.loading)
   const networkError = useNetworkAudioStore(state => state.error)
@@ -65,6 +69,23 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     } finally {
       playAllPending.current = false
       setPlayingAll(false)
+    }
+  }
+
+  async function handlePlayAllNetwork() {
+    if (networkPlayAllPending.current || networkLoading || !serverUrl || !token || !networkFolders.length) return
+    networkPlayAllPending.current = true
+    const signal = connectionSignal()
+    setPlayingAllNetwork(true)
+    setNetworkPlayAllError(undefined)
+    try {
+      await playAllNetworkAudios()
+    } catch (error) {
+      if (!signal.aborted)
+        setNetworkPlayAllError({ message: error instanceof Error ? error.message : String(error), signal })
+    } finally {
+      networkPlayAllPending.current = false
+      setPlayingAllNetwork(false)
     }
   }
 
@@ -94,7 +115,6 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                 </SidebarMenuAction>
                 <SidebarMenuAction
                   disabled={importing || loading || removing}
-                  aria-label="导入音乐文件夹"
                   onClick={async () => {
                     const folderId = await importLocalFolder()
                     if (folderId == null) return
@@ -124,13 +144,24 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                   </SidebarMenuButton>
                 </CollapsibleTrigger>
                 <SidebarMenuAction
-                  className="right-8!"
-                  aria-label="刷新网络文件夹"
+                  className="right-8! disabled:pointer-events-none disabled:opacity-50"
+                  title="播放全部"
+                  disabled={networkLoading || playingAllNetwork || !serverUrl || !token || !networkFolders.length}
+                  onClick={handlePlayAllNetwork}
+                >
+                  {playingAllNetwork ? <LoaderCircle className="animate-spin" /> : <Play />}
+                </SidebarMenuAction>
+                <SidebarMenuAction
                   disabled={networkLoading || !serverUrl || !token}
                   onClick={() => void loadNetworkFolders()}
                 >
                   {networkLoading ? <LoaderCircle className="animate-spin" /> : <RefreshCw />}
                 </SidebarMenuAction>
+                {networkPlayAllError && !networkPlayAllError.signal.aborted && (
+                  <p role="alert" className="px-2 py-1 text-sm text-destructive break-all">
+                    {networkPlayAllError.message}
+                  </p>
+                )}
                 <CollapsibleContent>
                   <SidebarMenuSub>
                     {networkFolders.map(folder => (

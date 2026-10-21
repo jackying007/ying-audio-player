@@ -105,8 +105,14 @@ const toNetworkAudio = (row: Parameters<typeof convertNetworkAudio>[0]) => ({
 })
 const { playAudio, playNextAudio, cachedMap, invalidateAudioCache, useAudioStore, PlayState } =
   await import('../src/store/audio-store')
-const { useNetworkAudioStore, loadNetworkFolders, loadNetworkAudios, syncLocalFolder, removeNetworkFolder } =
-  await import('../src/store/network-audio-store')
+const {
+  useNetworkAudioStore,
+  loadNetworkFolders,
+  loadNetworkAudios,
+  syncLocalFolder,
+  removeNetworkFolder,
+  playAllNetworkAudios
+} = await import('../src/store/network-audio-store')
 const { useLocalAudioStore, removeLocalFolder, loadFolderAudios, refreshFolder, playAllLocalAudios } =
   await import('../src/store/local-audio-store')
 const { useAppStore } = await import('../src/store/app-store')
@@ -198,6 +204,122 @@ beforeEach(() => {
   useAudioStore.setState({ currentAudioInfo: undefined, audioList: [], playlistFolderId: undefined, error: undefined })
   useNetworkAudioStore.setState({ syncs: {}, folders: [{ id: 1, name: '我的音乐' }], entries: {} })
   fetchHandler = async () => new Response('music')
+})
+
+test('play all network songs replaces the queue in folder and song order and starts the first song', async () => {
+  await playAudio(local, { audioList: [local], playlistFolderId: 1 })
+  useNetworkAudioStore.setState({
+    folders: [
+      { id: 2, name: '第二个文件夹' },
+      { id: 1, name: '我的音乐' }
+    ]
+  })
+  // The later folder responds first; response timing must not change queue order.
+  const firstFolder = deferred<Response>()
+  const secondFolderLoaded = deferred<void>()
+  const requests: string[] = []
+  fetchHandler = async url => {
+    requests.push(url)
+    if (url.endsWith('/folders/2/audios')) return firstFolder.promise
+    if (url.endsWith('/folders/1/audios')) {
+      secondFolderLoaded.resolve()
+      return json([row])
+    }
+    return new Response('music')
+  }
+  const playing = playAllNetworkAudios()
+  await secondFolderLoaded.promise
+  expect(useAudioStore.getState().currentAudioInfo).toBe(local)
+  firstFolder.resolve(
+    json([
+      { ...row, id: 3, folderId: 2 },
+      { ...row, id: 2, folderId: 2 }
+    ])
+  )
+  await playing
+  const player = useAudioStore.getState()
+  expect(player.audioList.map(audio => audio.id)).toEqual([3, 2, 1])
+  expect(player.audioList.map(audio => audio.folderName)).toEqual(['第二个文件夹', '第二个文件夹', '我的音乐'])
+  expect(player.audioList.every(audio => audio.source === 'network')).toBe(true)
+  expect(player.playlistFolderId).toBeUndefined()
+  expect(player.currentAudioInfo).toBe(player.audioList[0])
+  expect(player.playState).toBe(PlayState.Playing)
+  expect(requests.filter(url => url.includes('/api/audios/'))).toEqual([
+    'http://localhost:8787/api/audios/3/audio?v=v1'
+  ])
+  playNextAudio()
+  expect(useAudioStore.getState().currentAudioInfo?.id).toBe(2)
+})
+
+test.each([false, true])(
+  'play all network songs preserves playback for an empty list (no folders: %s)',
+  async noFolders => {
+    await playAudio(local, { audioList: [local], playlistFolderId: 1 })
+    const before = useAudioStore.getState()
+    if (noFolders) useNetworkAudioStore.setState({ folders: [] })
+    fetchHandler = async () => json([])
+    await expect(playAllNetworkAudios()).rejects.toThrow('暂无可播放的音乐')
+    expect(useAudioStore.getState()).toBe(before)
+  }
+)
+
+test('play all network songs preserves playback when any folder request fails', async () => {
+  await playAudio(local, { audioList: [local], playlistFolderId: 1 })
+  const before = useAudioStore.getState()
+  useNetworkAudioStore.setState({
+    folders: [
+      { id: 1, name: '我的音乐' },
+      { id: 2, name: '其他' }
+    ]
+  })
+  fetchHandler = async url =>
+    url.endsWith('/folders/1/audios') ? json([row]) : new Response('加载歌曲失败', { status: 500 })
+  await expect(playAllNetworkAudios()).rejects.toThrow('加载歌曲失败')
+  expect(useAudioStore.getState()).toBe(before)
+})
+
+test.each([200, 401])('play all network songs discards old connection results (status: %s)', async status => {
+  await playAudio(local, { audioList: [local], playlistFolderId: 1 })
+  const before = useAudioStore.getState()
+  const response = deferred<Response>()
+  const requested = deferred<void>()
+  fetchHandler = async () => {
+    requested.resolve()
+    return response.promise
+  }
+  const playing = playAllNetworkAudios()
+  await requested.promise
+  useNetworkSettings.setState({ token: 'new-secret' })
+  response.resolve(status === 200 ? json([row]) : new Response('旧连接已取消', { status }))
+  await playing
+  expect(useAudioStore.getState()).toBe(before)
+})
+
+test.each(['removed', 'removing'])('play all network songs excludes a folder %s during loading', async state => {
+  useNetworkAudioStore.setState({
+    folders: [
+      { id: 1, name: '我的音乐' },
+      { id: 2, name: '其他' }
+    ]
+  })
+  const response = deferred<Response>()
+  const requested = deferred<void>()
+  fetchHandler = async url => {
+    if (url.endsWith('/folders/1/audios')) {
+      requested.resolve()
+      return response.promise
+    }
+    if (url.endsWith('/folders/2/audios')) return json([{ ...row, id: 2, folderId: 2 }])
+    return new Response('music')
+  }
+  const playing = playAllNetworkAudios()
+  await requested.promise
+  if (state === 'removed') useNetworkAudioStore.setState({ folders: [{ id: 2, name: '其他' }] })
+  else useNetworkAudioStore.setState({ removingFolders: [{ id: 1, name: '我的音乐' }] })
+  response.resolve(json([row]))
+  await playing
+  expect(useAudioStore.getState().audioList.map(audio => audio.id)).toEqual([2])
+  expect(useAudioStore.getState().currentAudioInfo?.id).toBe(2)
 })
 
 test('removing a local folder clears its index state, queue and cache, preserving other folders', async () => {
