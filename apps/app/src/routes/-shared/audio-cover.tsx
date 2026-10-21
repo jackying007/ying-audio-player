@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Music2 } from 'lucide-react'
 import type { AudioInfo } from '@/store/audio-store'
-import { networkFile } from '@/lib/network-audio'
+import { networkApi } from '@/api'
 import { useNetworkSettings } from '@/store/network-settings'
 
 export function AudioCover({ cover, coverLink }: { cover: AudioInfo['cover']; coverLink?: string }) {
@@ -31,7 +31,7 @@ export function AudioCover({ cover, coverLink }: { cover: AudioInfo['cover']; co
         const blob = cover
           ? new Blob([new Uint8Array(cover.data)], { type: cover.mime })
           : coverLink
-            ? await (await networkFile(coverLink, controller.signal)).blob()
+            ? await networkApi.getCover(coverLink, controller.signal)
             : undefined
         if (!blob || disposed) return
         objectUrl = URL.createObjectURL(blob)

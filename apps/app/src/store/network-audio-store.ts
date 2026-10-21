@@ -5,17 +5,8 @@ import { useNetworkSettings } from './network-settings'
 import { useAppStore } from './app-store'
 import { useLocalAudioStore } from './local-audio-store'
 import { invalidateAudioCache, playAudio, useAudioStore, type AudioInfo } from './audio-store'
-import {
-  connectionSignal,
-  audioJson,
-  audioRequest,
-  NetworkError,
-  postJson,
-  toNetworkAudio,
-  type NetworkAudio,
-  type NetworkFolder,
-  type UploadPlan
-} from '@/lib/network-audio'
+import { connectionSignal, networkApi, HttpError, type NetworkFolder } from '@/api'
+import { toNetworkAudio } from '@/lib/network-audio'
 
 type Entry = { audios?: AudioInfo[]; loading: boolean; error?: string }
 type SyncState = {
@@ -43,7 +34,7 @@ export async function loadNetworkFolders() {
   const request = ++folderRequest
   useNetworkAudioStore.setState({ loading: true, error: undefined })
   try {
-    const folders = await audioJson<NetworkFolder[]>('/folders')
+    const folders = await networkApi.listFolders()
     if (request === folderRequest) useNetworkAudioStore.setState({ folders })
   } catch (error) {
     if (request === folderRequest) useNetworkAudioStore.setState({ error: String(error) })
@@ -61,7 +52,7 @@ export async function loadNetworkAudios(id: string) {
   audioRequests.set(id, request)
   updateEntry(id, { loading: true, error: undefined })
   try {
-    const rows = await audioJson<NetworkAudio[]>(`/folders/${encodeURIComponent(id)}/audios`)
+    const rows = await networkApi.listAudios(id)
     if (audioRequests.get(id) !== request) return
     let folderName = useNetworkAudioStore.getState().folders.find(folder => folder.id === Number(id))?.name
     if (!folderName) {
@@ -104,7 +95,7 @@ async function putFile(
   signal: AbortSignal
 ) {
   if (!bytes.byteLength || bytes.byteLength > limit) throw new Error(`${kind} 文件为空或超过大小限制`)
-  await audioRequest(`/uploads/${id}/${kind}`, { method: 'PUT', body: new Blob([new Uint8Array(bytes)]), signal })
+  await networkApi.putFile(id, kind, new Blob([new Uint8Array(bytes)]), signal)
 }
 export async function syncLocalFolder(id: string) {
   const entry = useLocalAudioStore.getState()[id]
@@ -126,7 +117,7 @@ export async function syncLocalFolder(id: string) {
     message: undefined
   })
   try {
-    const remote = await audioJson<NetworkFolder>('/folders', { ...postJson({ name: folder.name }), signal })
+    const remote = await networkApi.createFolder(folder.name, signal)
     for (const [index, audio] of audios.entries()) {
       if (signal.aborted) throw new Error('连接配置已变更，同步已停止')
       const filename = audio.link.split(/[\\/]/).pop()!
@@ -141,8 +132,9 @@ export async function syncLocalFolder(id: string) {
           cover ? fileHash(cover) : null
         ])
         signal.throwIfAborted()
-        const upload = await audioJson<UploadPlan>(`/folders/${remote.id}/uploads`, {
-          ...postJson({
+        const upload = await networkApi.createUpload(
+          remote.id,
+          {
             filename,
             name: audio.name,
             title: audio.title,
@@ -152,9 +144,9 @@ export async function syncLocalFolder(id: string) {
             hasLyrics: audio.hasLyrics,
             coverMime: audio.cover?.mime ?? null,
             hashes: { audio: audioHash, lyrics: lyricsHash, cover: coverHash }
-          }),
+          },
           signal
-        })
+        )
         if (upload.unchanged) {
           skipped++
         } else {
@@ -164,12 +156,12 @@ export async function syncLocalFolder(id: string) {
             await putFile(upload.id, 'lyrics', lyrics, 1024 * 1024, signal)
           if (cover && upload.requiredFiles.includes('cover'))
             await putFile(upload.id, 'cover', cover, 10 * 1024 * 1024, signal)
-          await audioJson(`/uploads/${upload.id}/commit`, { method: 'POST', signal })
+          await networkApi.commitUpload(upload.id, signal)
           succeeded++
           invalidateAudioCache(remote.id, 'network')
         }
       } catch (error) {
-        if (signal.aborted || (error instanceof NetworkError && (error.status === 401 || error.status === 503)))
+        if (signal.aborted || (error instanceof HttpError && (error.status === 401 || error.status === 503)))
           throw error
         failures.push(`${filename}：${String(error)}`)
       }

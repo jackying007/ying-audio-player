@@ -93,6 +93,7 @@ mock.module('@tauri-apps/api/core', () => ({
 }))
 mock.module('@tauri-apps/plugin-dialog', () => ({ open: async () => null }))
 const { useNetworkSettings, normalizeServerUrl } = await import('../src/store/network-settings')
+const { networkApi, HttpError, connectionSignal } = await import('../src/api')
 const { toNetworkAudio: convertNetworkAudio } = await import('../src/lib/network-audio')
 const toNetworkAudio = (row: Parameters<typeof convertNetworkAudio>[0]) => ({
   ...convertNetworkAudio(row),
@@ -118,7 +119,7 @@ afterEach(async () => {
 const originalFetch = globalThis.fetch
 let fetchHandler: (url: string, init: RequestInit) => Promise<Response>
 globalThis.fetch = ((input: string | URL | Request, init?: RequestInit) =>
-  fetchHandler(String(input), init ?? {})) as typeof fetch
+  fetchHandler(String(input), { ...init, method: init?.method?.toUpperCase() })) as typeof fetch
 afterAll(() => {
   globalThis.fetch = originalFetch
   mock.restore()
@@ -302,7 +303,8 @@ test('local and network cache invalidation are isolated and connection changes s
   expect(useAudioStore.getState().currentAudioInfo?.link).toBe(local.link)
 })
 test('lyric failures warn without preventing audio playback', async () => {
-  fetchHandler = async url => (url.includes('lyrics') ? json({ message: 'missing' }, 404) : new Response('music'))
+  fetchHandler = async url =>
+    url.includes('lyrics') ? new Response('missing', { status: 404 }) : new Response('music')
   await playAndSave(toNetworkAudio({ ...row, hasLyrics: true }))
   expect(useAudioStore.getState().playState).toBe(PlayState.Playing)
   expect(useAudioStore.getState().warning).toContain('歌词加载失败')
@@ -396,7 +398,8 @@ test('disk write failures do not stop playback and retry from memory without dow
 
 test('retrying failed lyrics completes the persistent cache without downloading audio again', async () => {
   const audio = toNetworkAudio({ ...row, hasLyrics: true })
-  fetchHandler = async url => (url.includes('lyrics') ? json({ message: 'missing' }, 404) : new Response('music'))
+  fetchHandler = async url =>
+    url.includes('lyrics') ? new Response('missing', { status: 404 }) : new Response('music')
   await playAndSave(audio)
   expect(diskEntries.size).toBe(0)
   const requests: string[] = []
@@ -476,11 +479,17 @@ test('loading songs before the folder list resolves the real folder name before 
 })
 test('old folder requests cannot overwrite a new connection', async () => {
   let resolve!: (response: Response) => void
+  let started!: () => void
+  const ready = new Promise<void>(done => {
+    started = done
+  })
   fetchHandler = async () =>
     await new Promise<Response>(done => {
       resolve = done
+      started()
     })
   const old = loadNetworkAudios('1')
+  await ready
   useNetworkSettings.setState({ token: 'new' })
   fetchHandler = async () => json([{ ...row, name: 'new connection' }])
   await loadNetworkAudios('1')
@@ -588,4 +597,150 @@ test('sync skips unchanged songs and sends only files requested by the server', 
     completed: 2,
     failures: []
   })
+})
+
+test('API requests retain their connection snapshot while settings change', async () => {
+  const requests: { url: string; token: string | null; signal?: AbortSignal | null }[] = []
+  fetchHandler = async (url, init) => {
+    requests.push({ url, token: new Headers(init.headers).get('Authorization'), signal: init.signal })
+    return json([])
+  }
+  const oldSignal = connectionSignal()
+  const old = networkApi.listFolders()
+  useNetworkSettings.setState({ serverUrl: 'https://music.example', token: 'new-token' })
+  await Promise.all([old, networkApi.listFolders()])
+  expect(requests.map(({ url, token }) => ({ url, token }))).toEqual([
+    { url: 'http://localhost:8787/api/folders', token: 'Bearer secret' },
+    { url: 'https://music.example/api/folders', token: 'Bearer new-token' }
+  ])
+  expect(oldSignal.aborted).toBe(true)
+  expect(requests[0].signal?.aborted).toBe(true)
+  expect(requests[1].signal?.aborted).toBe(false)
+})
+
+test('API requests abort on caller cancellation and connection changes', async () => {
+  for (const changeConnection of [false, true]) {
+    let started!: () => void
+    const ready = new Promise<void>(done => {
+      started = done
+    })
+    fetchHandler = async (_url, init) =>
+      new Promise<Response>((_resolve, reject) => {
+        init.signal!.addEventListener('abort', () => reject(init.signal!.reason), { once: true })
+        started()
+      })
+    const controller = new AbortController()
+    const request = changeConnection
+      ? networkApi.listFolders()
+      : networkApi.getAudio('http://localhost:8787/api/audios/1/audio?v=v1', controller.signal)
+    const result = request.catch(error => error)
+    await ready
+    if (changeConnection) useNetworkSettings.setState({ token: 'changed' })
+    else controller.abort()
+    expect(await result).toBeInstanceOf(DOMException)
+  }
+})
+
+test('missing connection settings fail before sending a request', async () => {
+  let calls = 0
+  fetchHandler = async () => {
+    calls++
+    return json([])
+  }
+  for (const settings of [
+    { serverUrl: '', token: 'secret' },
+    { serverUrl: 'http://localhost:8787', token: '' }
+  ]) {
+    useNetworkSettings.setState(settings)
+    await expect(networkApi.listFolders()).rejects.toMatchObject({
+      status: 401,
+      message: '请先在 App 设置中配置服务端地址和共享密钥'
+    })
+  }
+  expect(calls).toBe(0)
+})
+
+test('API errors preserve status and text messages with a fallback for empty responses', async () => {
+  fetchHandler = async () => new Response('密钥错误', { status: 401 })
+  try {
+    await networkApi.listFolders()
+    throw new Error('Expected an HTTP error')
+  } catch (error) {
+    expect(error).toBeInstanceOf(HttpError)
+    expect(error).toMatchObject({ status: 401, message: '密钥错误' })
+  }
+  fetchHandler = async () => new Response('服务端未配置密钥', { status: 503 })
+  await expect(networkApi.listFolders()).rejects.toMatchObject({ status: 503, message: '服务端未配置密钥' })
+  fetchHandler = async () => new Response('', { status: 500 })
+  await expect(networkApi.listFolders()).rejects.toMatchObject({ status: 500, message: '网络请求失败 (500)' })
+})
+
+test('media APIs preserve versions and return audio bytes, lyrics text and cover blobs', async () => {
+  const urls: string[] = []
+  fetchHandler = async (url, init) => {
+    urls.push(url)
+    expect(new Headers(init.headers).get('Authorization')).toBe('Bearer secret')
+    return new Response(url.includes('/lyrics') ? '[00:01]歌词' : new Uint8Array([0, 128, 255]), {
+      headers: { 'Content-Type': url.includes('/cover') ? 'image/png' : 'application/octet-stream' }
+    })
+  }
+  const base = 'http://localhost:8787/api/audios/1'
+  expect(new Uint8Array(await networkApi.getAudio(base + '/audio?v=v1'))).toEqual(new Uint8Array([0, 128, 255]))
+  expect(await networkApi.getLyrics(base + '/lyrics?v=v1')).toBe('[00:01]歌词')
+  const cover = await networkApi.getCover(base + '/cover?v=v1')
+  expect(cover.type).toBe('image/png')
+  expect(new Uint8Array(await cover.arrayBuffer())).toEqual(new Uint8Array([0, 128, 255]))
+  expect(urls).toEqual(['audio', 'lyrics', 'cover'].map(kind => base + '/' + kind + '?v=v1'))
+})
+
+test('media APIs reject stale server URLs without sending credentials', async () => {
+  let calls = 0
+  fetchHandler = async () => {
+    calls++
+    return new Response('music')
+  }
+  useNetworkSettings.setState({ serverUrl: 'https://music.example' })
+  for (const request of [networkApi.getAudio, networkApi.getLyrics, networkApi.getCover]) {
+    await expect(request('http://localhost:8787/api/audios/1/audio?v=v1')).rejects.toThrow('服务端地址已变更')
+  }
+  expect(calls).toBe(0)
+})
+
+test('upload APIs send JSON metadata and unmodified binary bodies', async () => {
+  const bytes = new Uint8Array([0, 128, 255])
+  fetchHandler = async (url, init) => {
+    if (init.method === 'PUT') {
+      expect(url).toBe('http://localhost:8787/api/uploads/upload/audio')
+      expect(init.body).toBeInstanceOf(Blob)
+      expect(new Uint8Array(await (init.body as Blob).arrayBuffer())).toEqual(bytes)
+      expect(new Headers(init.headers).has('Content-Type')).toBe(false)
+    } else {
+      expect(new Headers(init.headers).get('Content-Type')).toContain('application/json')
+      expect(JSON.parse(String(init.body))).toEqual({ name: '中文 歌单' })
+    }
+    return json({ ok: true })
+  }
+  await networkApi.createFolder('中文 歌单')
+  await networkApi.putFile('upload', 'audio', new Blob([bytes]))
+})
+
+test('sync stops on authentication or service-unavailable errors', async () => {
+  for (const status of [401, 503]) {
+    useAppStore.setState({ localFolderList: [{ id: 1, name: 'music', link: 'C:/music', scannedAt: 0 }] })
+    useLocalAudioStore.setState({ '1': { audios: [local, { ...local, id: 2 }] } })
+    let uploads = 0
+    fetchHandler = async url => {
+      if (url.endsWith('/folders')) return json({ id: 1, name: 'music' })
+      uploads++
+      return new Response('停止同步', { status })
+    }
+    await syncLocalFolder('1')
+    expect(uploads).toBe(1)
+    expect(useNetworkAudioStore.getState().syncs['1']).toMatchObject({
+      running: false,
+      succeeded: 0,
+      failures: [],
+      message: 'HttpError: 停止同步'
+    })
+  }
 })

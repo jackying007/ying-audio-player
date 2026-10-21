@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import { readFile, readTextFile } from '@tauri-apps/plugin-fs'
 import { useAppStore } from './app-store'
 import { PlaybackQueue, playModes, type PlaybackAction } from '@/lib/playback-queue'
-import { networkFile } from '@/lib/network-audio'
+import { networkApi } from '@/api'
 import { networkCacheKey, readNetworkCache, saveNetworkCache, type NetworkCacheKey } from '@/lib/network-cache'
 import { useNetworkSettings } from './network-settings'
 
@@ -227,7 +227,7 @@ const startAudio = async (audioInfo: AudioInfo, playlist?: Pick<AudioStore, 'aud
         cached.cacheKey ??= await networkCacheKey(audioInfo)
         controller.signal.throwIfAborted()
         if (audioInfo.hasLyrics && cached.lrc === undefined) {
-          cached.lrc = await (await networkFile(audioInfo.lrcLink, controller.signal)).text()
+          cached.lrc = await networkApi.getLyrics(audioInfo.lrcLink, controller.signal)
         }
         if (request !== playRequest) return
         cached.warning = undefined
@@ -254,18 +254,14 @@ const startAudio = async (audioInfo: AudioInfo, playlist?: Pick<AudioStore, 'aud
         ? ([disk.audioFile, disk.lrc] as const)
         : await Promise.all([
             remote
-              ? networkFile(audioInfo.link, controller.signal)
-                  .then(response => response.arrayBuffer())
-                  .then(bytes => new Uint8Array(bytes))
+              ? networkApi.getAudio(audioInfo.link, controller.signal).then(bytes => new Uint8Array(bytes))
               : readFile(audioInfo.link),
             audioInfo.hasLyrics
               ? remote
-                ? networkFile(audioInfo.lrcLink, controller.signal)
-                    .then(response => response.text())
-                    .catch(() => {
-                      warning = '歌词加载失败，请重试播放'
-                      return undefined
-                    })
+                ? networkApi.getLyrics(audioInfo.lrcLink, controller.signal).catch(() => {
+                    warning = '歌词加载失败，请重试播放'
+                    return undefined
+                  })
                 : readLrc(audioInfo.lrcLink)
               : Promise.resolve(undefined)
           ])
