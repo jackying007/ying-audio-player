@@ -18,6 +18,7 @@ function LocalDetailPage() {
   const playbackError = useAudioStore(state => state.error)
   const folder = useAppStore(state => state.localFolderList.find(item => String(item.id) === folderId))
   const entry = useLocalAudioStore(state => state[folderId])
+  const removing = useAppStore(state => state.removingFolderIds.includes(Number(folderId)))
   const sync = useNetworkAudioStore(state => state.syncs[folderId])
   const configured = useNetworkSettings(state => !!state.serverUrl && !!state.token)
 
@@ -38,7 +39,7 @@ function LocalDetailPage() {
           <Button
             variant="outline"
             size="sm"
-            disabled={entry.refreshing || entry.loading || sync?.running || !audios}
+            disabled={removing || entry.refreshing || entry.loading || sync?.running || !audios}
             onClick={() => refreshFolder(folderId)}
           >
             <RefreshCw className={cn('size-4', entry.refreshing && 'animate-spin')} />
@@ -48,7 +49,7 @@ function LocalDetailPage() {
             <Button
               variant="outline"
               size="sm"
-              disabled={entry.refreshing || entry.loading || sync?.running || !audios?.length}
+              disabled={removing || entry.refreshing || entry.loading || sync?.running || !audios?.length}
               onClick={() => void syncLocalFolder(folderId)}
             >
               <Upload className="size-4" />
@@ -91,7 +92,7 @@ function LocalDetailPage() {
           <Button
             variant="destructive"
             size="sm"
-            disabled={entry.loading || entry.refreshing || sync?.running}
+            disabled={removing || entry.loading || entry.refreshing || sync?.running}
             onClick={() => (audios ? refreshFolder(folderId) : loadFolderAudios(folderId))}
           >
             重试

@@ -17,5 +17,6 @@ export const localAudio = {
   listFolders: () => invoke<LocalAudioFolder[]>('plugin:local-audio|list_folders'),
   importFolder: (path: string) => invoke<ScanResult>('plugin:local-audio|import_folder', { path }),
   listAudios: (folderId: number) => invoke<AudioInfo[]>('plugin:local-audio|list_audios', { folderId }),
+  removeFolder: (folderId: number) => invoke<void>('plugin:local-audio|remove_folder', { folderId }),
   refreshFolder: (folderId: number) => invoke<ScanResult>('plugin:local-audio|refresh_folder', { folderId })
 }

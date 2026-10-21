@@ -18,6 +18,7 @@
     "local-audio:allow-import-folder",
     "local-audio:allow-list-audios",
     "local-audio:allow-refresh-folder",
+    "local-audio:allow-remove-folder",
     "network-cache:allow-read-cache",
     "network-cache:allow-save-cache",
     {

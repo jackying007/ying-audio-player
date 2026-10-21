@@ -24,6 +24,7 @@ import { usePlayerOpen } from '@/store/audio-store'
 import { playAllLocalAudios } from '@/store/local-audio-store'
 import { loadNetworkFolders, useNetworkAudioStore } from '@/store/network-audio-store'
 import { useNetworkSettings } from '@/store/network-settings'
+import { LocalFolderItem } from '@/routes/-shared/local-folder-item'
 
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const pathname = useLocation({ select: location => location.pathname })
@@ -39,6 +40,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const importing = useAppStore(state => state.importing)
   const loading = useAppStore(state => state.loading)
   const inited = useAppStore(state => state.inited)
+  const removing = useAppStore(state => state.removingFolderIds.length > 0)
   const [playingAll, setPlayingAll] = useState(false)
   const [playAllError, setPlayAllError] = useState<string>()
   const playAllPending = useRef(false)
@@ -91,7 +93,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                   {playingAll ? <LoaderCircle className="animate-spin" /> : <Play />}
                 </SidebarMenuAction>
                 <SidebarMenuAction
-                  disabled={importing || loading}
+                  disabled={importing || loading || removing}
                   aria-label="导入音乐文件夹"
                   onClick={async () => {
                     const folderId = await importLocalFolder()
@@ -104,17 +106,8 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                 {playAllError && <p className="px-2 py-1 text-sm text-destructive break-all">{playAllError}</p>}
                 <CollapsibleContent>
                   <SidebarMenuSub>
-                    {localFolderList?.map(el => (
-                      <SidebarMenuSubItem
-                        key={el.id}
-                        onClick={() =>
-                          navigateFromSidebar({ to: '/local/$folderId', params: { folderId: String(el.id) } })
-                        }
-                      >
-                        <SidebarMenuSubButton className="cursor-pointer" isActive={`/local/${el.id}` === pathname}>
-                          {el.name}
-                        </SidebarMenuSubButton>
-                      </SidebarMenuSubItem>
+                    {localFolderList?.map(folder => (
+                      <LocalFolderItem key={folder.id} folder={folder} onNavigate={navigateFromSidebar} />
                     ))}
                     {!localFolderList?.length && <p className="text-sm">暂无导入</p>}
                   </SidebarMenuSub>

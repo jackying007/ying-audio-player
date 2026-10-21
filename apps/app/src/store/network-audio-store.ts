@@ -98,6 +98,7 @@ async function uploadFile(
   await networkApi.uploadFile(id, kind, new Blob([new Uint8Array(bytes)]), signal)
 }
 export async function syncLocalFolder(id: string) {
+  if (useAppStore.getState().removingFolderIds.includes(Number(id))) return
   const entry = useLocalAudioStore.getState()[id]
   if (!entry?.audios || entry.loading || entry.refreshing || useNetworkAudioStore.getState().syncs[id]?.running) return
   const folder = useAppStore.getState().localFolderList.find(item => item.id === Number(id))

@@ -151,28 +151,44 @@ let playRequest = 0
 let activeUrl: string | undefined
 let playbackAbort: AbortController | undefined
 
+function stopPlayback(audioList: AudioInfo[] = []) {
+  ++playRequest
+  playbackAbort?.abort()
+  pauseAudio()
+  audio.removeAttribute('src')
+  audio.load()
+  if (activeUrl) URL.revokeObjectURL(activeUrl)
+  activeUrl = undefined
+  useAudioStore.setState({
+    currentAudioInfo: undefined,
+    audioList,
+    playlistFolderId: undefined,
+    currentLrc: undefined,
+    currentTime: 0,
+    duration: undefined,
+    showMode: ShowMode.Hide,
+    playState: PlayState.None,
+    error: undefined,
+    warning: undefined
+  })
+}
+
+export function removeLocalFolderFromPlayback(folderId: number) {
+  const player = useAudioStore.getState()
+  const belongsToFolder = (item: AudioInfo) => item.source !== 'network' && item.folderId === folderId
+  const audioList = player.audioList.filter(item => !belongsToFolder(item))
+  if (player.currentAudioInfo && belongsToFolder(player.currentAudioInfo)) {
+    stopPlayback(audioList)
+  } else if (audioList.length !== player.audioList.length) {
+    useAudioStore.setState({ audioList })
+  }
+  invalidateAudioCache(folderId)
+}
+
 useNetworkSettings.subscribe((state, previous) => {
   if (state.serverUrl === previous.serverUrl && state.token === previous.token) return
   if (useAudioStore.getState().currentAudioInfo?.source === 'network') {
-    ++playRequest
-    playbackAbort?.abort()
-    pauseAudio()
-    audio.removeAttribute('src')
-    audio.load()
-    if (activeUrl) URL.revokeObjectURL(activeUrl)
-    activeUrl = undefined
-    useAudioStore.setState({
-      currentAudioInfo: undefined,
-      audioList: [],
-      playlistFolderId: undefined,
-      currentLrc: undefined,
-      currentTime: 0,
-      duration: undefined,
-      showMode: ShowMode.Hide,
-      playState: PlayState.None,
-      error: undefined,
-      warning: undefined
-    })
+    stopPlayback()
   }
   for (const [key, cached] of cachedMap) {
     if (cached.source !== 'network') continue
@@ -202,6 +218,9 @@ export const playAudio = async (
 }
 
 const startAudio = async (audioInfo: AudioInfo, playlist?: Pick<AudioStore, 'audioList' | 'playlistFolderId'>) => {
+  if (audioInfo.source !== 'network' && useAppStore.getState().removingFolderIds.includes(audioInfo.folderId)) {
+    return false
+  }
   const request = ++playRequest
   playbackAbort?.abort()
   const controller = new AbortController()

@@ -1,7 +1,14 @@
 import { create } from 'zustand'
 import { localAudio } from '@/lib/local-audio'
 import { useAppStore } from './app-store'
-import { type AudioInfo, useAudioStore, playAudio, invalidateAudioCache } from './audio-store'
+import {
+  type AudioInfo,
+  useAudioStore,
+  playAudio,
+  invalidateAudioCache,
+  removeLocalFolderFromPlayback
+} from './audio-store'
+import { useNetworkAudioStore } from './network-audio-store'
 
 type FolderAudio = {
   audios?: AudioInfo[]
@@ -19,6 +26,7 @@ function update(folderId: string, patch: Partial<FolderAudio>) {
 }
 
 export async function loadFolderAudios(folderId: string) {
+  if (useAppStore.getState().removingFolderIds.includes(Number(folderId))) return
   const id = Number(folderId)
   if (!Number.isSafeInteger(id) || id <= 0) {
     update(folderId, { loading: false, error: '文件夹不存在，请从侧栏选择文件夹' })
@@ -44,7 +52,12 @@ export async function loadFolderAudios(folderId: string) {
 }
 
 export async function refreshFolder(folderId: string) {
-  if (useLocalAudioStore.getState()[folderId]?.refreshing) return
+  if (
+    useLocalAudioStore.getState()[folderId]?.refreshing ||
+    useAppStore.getState().removingFolderIds.includes(Number(folderId)) ||
+    useNetworkAudioStore.getState().syncs[folderId]?.running
+  )
+    return
   update(folderId, { refreshing: true, error: undefined, warnings: [] })
   try {
     const result = await localAudio.refreshFolder(Number(folderId))
@@ -67,10 +80,50 @@ export const playLocalAudio = async (audioInfo: AudioInfo, folderId: string) => 
   await playAudio(audioInfo, { audioList, playlistFolderId: Number(folderId) })
 }
 
+export async function removeLocalFolder(folderId: number): Promise<boolean> {
+  const id = String(folderId)
+  const app = useAppStore.getState()
+  if (
+    app.loading ||
+    app.importing ||
+    app.removingFolderIds.includes(folderId) ||
+    !app.localFolderList.some(folder => folder.id === folderId) ||
+    useLocalAudioStore.getState()[id]?.refreshing ||
+    useNetworkAudioStore.getState().syncs[id]?.running
+  )
+    return false
+  useAppStore.setState(state => ({ removingFolderIds: [...state.removingFolderIds, folderId] }))
+  try {
+    await localAudio.removeFolder(folderId)
+    generations.set(id, (generations.get(id) ?? 0) + 1)
+    useAppStore.setState(state => ({ localFolderList: state.localFolderList.filter(folder => folder.id !== folderId) }))
+    useLocalAudioStore.setState(state => {
+      const remaining = { ...state }
+      delete remaining[id]
+      return remaining
+    }, true)
+    useNetworkAudioStore.setState(state => {
+      const syncs = { ...state.syncs }
+      delete syncs[id]
+      return { syncs }
+    })
+    removeLocalFolderFromPlayback(folderId)
+    return true
+  } finally {
+    useAppStore.setState(state => ({ removingFolderIds: state.removingFolderIds.filter(value => value !== folderId) }))
+  }
+}
+
 export async function playAllLocalAudios() {
   const { localFolderList } = useAppStore.getState()
   const folderAudios = await Promise.all(localFolderList.map(folder => localAudio.listAudios(folder.id)))
-  const audioList = folderAudios.flat()
+  const { localFolderList: currentFolders, removingFolderIds } = useAppStore.getState()
+  const audioList = folderAudios
+    .flat()
+    .filter(
+      audio =>
+        currentFolders.some(folder => folder.id === audio.folderId) && !removingFolderIds.includes(audio.folderId)
+    )
   const firstAudio = audioList[0]
   if (!firstAudio) throw new Error('暂无可播放的音乐')
   await playAudio(firstAudio, { audioList, playlistFolderId: undefined })

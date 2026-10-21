@@ -7,6 +7,7 @@ fn main() {
                 "import_folder",
                 "list_audios",
                 "refresh_folder",
+                "remove_folder",
             ]),
         )
         .plugin(

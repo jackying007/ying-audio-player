@@ -40,6 +40,8 @@ Object.defineProperty(globalThis, 'localStorage', {
 })
 Object.defineProperty(globalThis, 'Audio', { configurable: true, value: TestAudio })
 const files = new Map<string, Uint8Array>()
+let localInvokeHook: ((command: string, input: unknown) => Promise<unknown>) | undefined
+let localReadHook: (() => Promise<Uint8Array>) | undefined
 type DiskEntry = { audioPath: string; lyricsPath: string | null }
 const diskEntries = new Map<string, DiskEntry>()
 let diskWriteError = false
@@ -47,6 +49,7 @@ let diskWriteHook: (() => Promise<void>) | undefined
 let diskReadHook: ((key: NetworkCacheKey) => Promise<DiskEntry | null>) | undefined
 mock.module('@tauri-apps/plugin-fs', () => ({
   readFile: async (path: string) => {
+    if (path === 'C:/music/song.mp3' && localReadHook) return localReadHook()
     const bytes = files.get(path)
     if (!bytes) throw new Error('missing file')
     return bytes
@@ -60,6 +63,7 @@ mock.module('@tauri-apps/plugin-fs', () => ({
 }))
 mock.module('@tauri-apps/api/core', () => ({
   invoke: async (command: string, input: { key: NetworkCacheKey } | ArrayBuffer) => {
+    if (command.startsWith('plugin:local-audio|') && localInvokeHook) return localInvokeHook(command, input)
     if (command === 'plugin:network-cache|read_cache') {
       const args = input as { key: NetworkCacheKey }
       return diskReadHook ? diskReadHook(args.key) : (diskEntries.get(JSON.stringify(args.key)) ?? null)
@@ -102,7 +106,8 @@ const toNetworkAudio = (row: Parameters<typeof convertNetworkAudio>[0]) => ({
 const { playAudio, playNextAudio, cachedMap, invalidateAudioCache, useAudioStore, PlayState } =
   await import('../src/store/audio-store')
 const { useNetworkAudioStore, loadNetworkAudios, syncLocalFolder } = await import('../src/store/network-audio-store')
-const { useLocalAudioStore } = await import('../src/store/local-audio-store')
+const { useLocalAudioStore, removeLocalFolder, loadFolderAudios, refreshFolder, playAllLocalAudios } =
+  await import('../src/store/local-audio-store')
 const { useAppStore } = await import('../src/store/app-store')
 import type { AudioInfo } from '../src/store/audio-store'
 
@@ -147,8 +152,33 @@ const local: AudioInfo = {
 }
 const json = (value: unknown, status = 200) =>
   new Response(JSON.stringify(value), { status, headers: { 'Content-Type': 'application/json' } })
+
+function prepareLocalRemoval() {
+  useAppStore.setState({
+    localFolderList: [
+      { id: 1, name: '音乐', link: 'C:/music', scannedAt: 0 },
+      { id: 2, name: '其他', link: 'C:/other', scannedAt: 0 }
+    ]
+  })
+  useLocalAudioStore.setState({ '1': { audios: [local] } }, true)
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>(done => {
+    resolve = done
+  })
+  return { promise, resolve }
+}
+
+function syncState(running: boolean) {
+  return { running, total: 0, completed: 0, succeeded: 0, skipped: 0, failures: [] }
+}
+
 beforeEach(() => {
-  useAppStore.setState({ playMode: 'sequence' })
+  useAppStore.setState({ playMode: 'sequence', removingFolderIds: [], importing: false, loading: false })
+  localInvokeHook = undefined
+  localReadHook = undefined
   useNetworkSettings.setState({ serverUrl: '', token: '' })
   useNetworkSettings.setState({ serverUrl: 'http://localhost:8787', token: 'secret' })
   cachedMap.clear()
@@ -161,6 +191,120 @@ beforeEach(() => {
   useAudioStore.setState({ currentAudioInfo: undefined, audioList: [], playlistFolderId: undefined, error: undefined })
   useNetworkAudioStore.setState({ syncs: {}, folders: [{ id: 1, name: '我的音乐' }], entries: {} })
   fetchHandler = async () => new Response('music')
+})
+
+test('removing a local folder clears its index state, queue and cache, preserving other folders', async () => {
+  prepareLocalRemoval()
+  files.set('C:/other/other.mp3', new Uint8Array([1]))
+  const other = { ...local, id: 2, folderId: 2, link: 'C:/other/other.mp3' }
+  await playAudio(local, { audioList: [local, other], playlistFolderId: undefined })
+  localInvokeHook = async (command, args) => {
+    expect(command).toBe('plugin:local-audio|remove_folder')
+    expect(args).toEqual({ folderId: 1 })
+  }
+  expect(await removeLocalFolder(1)).toBe(true)
+  expect(useAppStore.getState().localFolderList.map(folder => folder.id)).toEqual([2])
+  expect(useLocalAudioStore.getState()['1']).toBeUndefined()
+  expect(useAudioStore.getState().currentAudioInfo).toBeUndefined()
+  expect(useAudioStore.getState().audioList).toEqual([other])
+  expect(TestAudio.instance.paused).toBe(true)
+  expect(TestAudio.instance.src).toBe('')
+  expect(cachedMap.has(local.link)).toBe(false)
+})
+
+test('failed removal preserves the folder, queue and current playback and can be retried', async () => {
+  prepareLocalRemoval()
+  await playAudio(local, { audioList: [local], playlistFolderId: 1 })
+  const before = useAudioStore.getState()
+  localInvokeHook = async () => {
+    throw new Error('database locked')
+  }
+  await expect(removeLocalFolder(1)).rejects.toThrow('database locked')
+  expect(useAppStore.getState().localFolderList).toHaveLength(2)
+  expect(useAppStore.getState().removingFolderIds).toEqual([])
+  expect(useAudioStore.getState()).toBe(before)
+  expect(useLocalAudioStore.getState()['1']?.audios).toEqual([local])
+  localInvokeHook = async () => undefined
+  expect(await removeLocalFolder(1)).toBe(true)
+})
+
+test('removal blocks duplicate removal, refresh, sync and new playback', async () => {
+  prepareLocalRemoval()
+  const pending = deferred<void>()
+  let calls = 0
+  localInvokeHook = async () => {
+    calls++
+    await pending.promise
+  }
+  const removing = removeLocalFolder(1)
+  expect(await removeLocalFolder(1)).toBe(false)
+  await refreshFolder('1')
+  await syncLocalFolder('1')
+  expect(await playAudio(local)).toBe(false)
+  expect(calls).toBe(1)
+  pending.resolve()
+  await removing
+})
+
+test('import, refresh and sync prevent removal', async () => {
+  prepareLocalRemoval()
+  useAppStore.setState({ importing: true })
+  expect(await removeLocalFolder(1)).toBe(false)
+  useAppStore.setState({ importing: false })
+  useLocalAudioStore.setState({ '1': { refreshing: true } })
+  expect(await removeLocalFolder(1)).toBe(false)
+  useLocalAudioStore.setState({ '1': { audios: [local] } })
+  useNetworkAudioStore.setState({ syncs: { '1': syncState(true) } })
+  expect(await removeLocalFolder(1)).toBe(false)
+})
+
+test('late folder listing and playback cannot restore a removed folder', async () => {
+  prepareLocalRemoval()
+  const listing = deferred<AudioInfo[]>()
+  const reading = deferred<Uint8Array>()
+  localInvokeHook = async command => (command.endsWith('list_audios') ? listing.promise : undefined)
+  localReadHook = () => reading.promise
+  const load = loadFolderAudios('1')
+  const play = playAudio(local, { audioList: [local], playlistFolderId: 1 })
+  await removeLocalFolder(1)
+  listing.resolve([local])
+  reading.resolve(new Uint8Array([1]))
+  await Promise.all([load, play])
+  expect(useLocalAudioStore.getState()['1']).toBeUndefined()
+  expect(useAudioStore.getState().currentAudioInfo).toBeUndefined()
+  expect(cachedMap.has(local.link)).toBe(false)
+})
+
+test('play all excludes folders removed while their lists are loading', async () => {
+  prepareLocalRemoval()
+  const listing = deferred<AudioInfo[]>()
+  const other = { ...local, id: 2, folderId: 2, link: 'C:/other/other.mp3' }
+  files.set(other.link, new Uint8Array([1]))
+  localInvokeHook = async (command, args) => {
+    if (command.endsWith('list_audios'))
+      return (args as { folderId: number }).folderId === 1 ? listing.promise : [other]
+  }
+  const playing = playAllLocalAudios()
+  await removeLocalFolder(1)
+  listing.resolve([local])
+  await playing
+  expect(useAudioStore.getState().audioList).toEqual([other])
+  expect(useAudioStore.getState().currentAudioInfo).toEqual(other)
+})
+
+test('removal preserves network playback with the same folder ID and clears only local sync results', async () => {
+  prepareLocalRemoval()
+  await playAudio(toNetworkAudio(row))
+  const current = useAudioStore.getState().currentAudioInfo
+  const src = TestAudio.instance.src
+  useNetworkAudioStore.setState({ syncs: { '1': syncState(false), '2': syncState(false) } })
+  await removeLocalFolder(1)
+  expect(useAudioStore.getState().currentAudioInfo).toBe(current)
+  expect(TestAudio.instance.src).toBe(src)
+  expect(TestAudio.instance.paused).toBe(false)
+  expect(useNetworkAudioStore.getState().syncs['1']).toBeUndefined()
+  expect(useNetworkAudioStore.getState().syncs['2']).toBeDefined()
+  expect(useNetworkAudioStore.getState().folders).toHaveLength(1)
 })
 
 test('settings normalize origins and reject credentials or API paths', () => {

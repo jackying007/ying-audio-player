@@ -23,7 +23,8 @@ pub fn init<R: tauri::Runtime>() -> tauri::plugin::TauriPlugin<R> {
             list_folders,
             import_folder,
             list_audios,
-            refresh_folder
+            refresh_folder,
+            remove_folder
         ])
         .build()
 }
@@ -388,8 +389,20 @@ fn index_folder(db: &mut Connection, state: &LocalAudioState, path: &Path) -> Re
 fn reindex_folder(db: &mut Connection, state: &LocalAudioState, folder_id: i64) -> Result<ScanResult> {
     let folder = get_folder(db, folder_id)?;
     let _guard = state.acquire(folder.link.clone())?;
+    // Deletion may have completed between the lookup and acquiring the guard.
+    get_folder(db, folder_id)?;
     let audios = scan_directory(Path::new(&folder.link))?;
     save_scan(db, &folder.link, &audios)
+}
+
+fn remove_indexed_folder(db: &Connection, state: &LocalAudioState, folder_id: i64) -> Result<()> {
+    let folder = get_folder(db, folder_id)?;
+    let _guard = state.acquire(folder.link)?;
+    let removed = db.execute("DELETE FROM folders WHERE id = ?", [folder_id]).map_err(db_error)?;
+    if removed == 0 {
+        return Err("文件夹不存在".into());
+    }
+    Ok(())
 }
 
 fn database_path() -> Result<PathBuf> {
@@ -430,6 +443,20 @@ pub async fn refresh_folder(
     let state = state.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
         reindex_folder(&mut open_database(&database)?, &state, folder_id)
+    })
+    .await
+    .map_err(db_error)?
+}
+
+#[tauri::command]
+pub async fn remove_folder(
+    state: tauri::State<'_, LocalAudioState>,
+    folder_id: i64,
+) -> Result<()> {
+    let database = database_path()?;
+    let state = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        remove_indexed_folder(&open_database(&database)?, &state, folder_id)
     })
     .await
     .map_err(db_error)?
@@ -511,6 +538,55 @@ mod tests {
             }
             tag.save_to_path(path, WriteOptions::default()).unwrap();
         }
+    }
+
+    #[test]
+    fn removal_cascades_preserves_files_and_other_folders_and_allows_reimport() {
+        let fixture = Fixture::new();
+        let music = fixture.music();
+        mp3(&music.join("song.mp3"), true);
+        fs::write(music.join("song.lrc"), "lyrics").unwrap();
+        let other = fixture.0.join("other");
+        fs::create_dir(&other).unwrap();
+        mp3(&other.join("other.mp3"), false);
+        let mut db = fixture.db();
+        let state = LocalAudioState::default();
+        let folder = index_folder(&mut db, &state, &music).unwrap().folder;
+        let other_folder = index_folder(&mut db, &state, &other).unwrap().folder;
+        let guard = state.acquire(folder.link.clone()).unwrap();
+        assert!(remove_indexed_folder(&db, &state, folder.id).is_err());
+        drop(guard);
+        remove_indexed_folder(&db, &state, folder.id).unwrap();
+        let count: i64 = db.query_row("SELECT count(*) FROM audios WHERE folder_id = ?", [folder.id], |r| r.get(0)).unwrap();
+        assert_eq!(count, 0);
+        assert_eq!(query_folders(&db).unwrap().len(), 1);
+        assert_eq!(query_audios(&db, other_folder.id).unwrap().len(), 1);
+        assert!(music.join("song.mp3").exists());
+        assert_eq!(fs::read_to_string(music.join("song.lrc")).unwrap(), "lyrics");
+        let imported = index_folder(&mut db, &state, &music).unwrap();
+        assert_ne!(imported.folder.id, folder.id);
+        assert_eq!(query_audios(&db, imported.folder.id).unwrap().len(), 1);
+        drop(db);
+        let db = fixture.db();
+        assert!(get_folder(&db, folder.id).is_err());
+    }
+
+    #[test]
+    fn removal_works_with_missing_source_directory_and_sql_failure_preserves_index() {
+        let fixture = Fixture::new();
+        let music = fixture.music();
+        mp3(&music.join("song.mp3"), false);
+        let mut db = fixture.db();
+        let state = LocalAudioState::default();
+        let folder = index_folder(&mut db, &state, &music).unwrap().folder;
+        db.execute_batch("CREATE TRIGGER fail_removal BEFORE DELETE ON folders BEGIN SELECT RAISE(ABORT, 'failure'); END;").unwrap();
+        assert!(remove_indexed_folder(&db, &state, folder.id).is_err());
+        assert_eq!(query_audios(&db, folder.id).unwrap().len(), 1);
+        db.execute_batch("DROP TRIGGER fail_removal;").unwrap();
+        fs::rename(&music, fixture.0.join("offline")).unwrap();
+        remove_indexed_folder(&db, &state, folder.id).unwrap();
+        assert!(query_folders(&db).unwrap().is_empty());
+        assert!(remove_indexed_folder(&db, &state, folder.id).is_err());
     }
 
     #[test]

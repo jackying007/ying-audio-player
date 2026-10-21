@@ -11,6 +11,7 @@ type AppStore = {
   localFolderList: LocalAudioFolder[]
   loading: boolean
   importing: boolean
+  removingFolderIds: number[]
   error?: string
   warnings: string[]
 }
@@ -24,6 +25,7 @@ export const useAppStore = create<AppStore>()(
       localFolderList: [],
       loading: false,
       importing: false,
+      removingFolderIds: [],
       warnings: []
     }),
     {
@@ -46,7 +48,7 @@ export const useAppStore = create<AppStore>()(
 )
 
 export async function initLocalAudio() {
-  if (useAppStore.getState().loading) return
+  if (useAppStore.getState().loading || useAppStore.getState().removingFolderIds.length) return
   useAppStore.setState({ loading: true, error: undefined })
   try {
     const localFolderList = await localAudio.listFolders()
@@ -60,7 +62,7 @@ export async function initLocalAudio() {
 
 let lastImportPath: string | undefined
 export async function importLocalFolder(retry = false) {
-  if (useAppStore.getState().importing) return
+  if (useAppStore.getState().importing || useAppStore.getState().removingFolderIds.length) return
   useAppStore.setState({ importing: true, error: undefined, warnings: [] })
   try {
     const path = retry && lastImportPath ? lastImportPath : await open({ multiple: false, directory: true })
