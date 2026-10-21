@@ -13,7 +13,8 @@ import {
   SidebarMenuItem,
   SidebarMenuSub,
   SidebarMenuSubButton,
-  SidebarMenuSubItem
+  SidebarMenuSubItem,
+  useSidebar
   // SidebarFooter,
   // SidebarRail
 } from '@/components/ui/sidebar'
@@ -27,6 +28,11 @@ import { useNetworkSettings } from '@/store/network-settings'
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const pathname = useLocation({ select: location => location.pathname })
   const navigate = useNavigate()
+  const { isMobile, setOpenMobile } = useSidebar()
+  const navigateFromSidebar: typeof navigate = options => {
+    if (isMobile) setOpenMobile(false)
+    return navigate(options)
+  }
 
   const localFolderList = useAppStore(state => state.localFolderList)
   const playerOpen = usePlayerOpen()
@@ -90,7 +96,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                   onClick={async () => {
                     const folderId = await importLocalFolder()
                     if (folderId == null) return
-                    void navigate({ to: '/local/$folderId', params: { folderId: String(folderId) } })
+                    void navigateFromSidebar({ to: '/local/$folderId', params: { folderId: String(folderId) } })
                   }}
                 >
                   {importing ? <LoaderCircle className="animate-spin" /> : <Plus />}
@@ -101,7 +107,9 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                     {localFolderList?.map(el => (
                       <SidebarMenuSubItem
                         key={el.id}
-                        onClick={() => navigate({ to: '/local/$folderId', params: { folderId: String(el.id) } })}
+                        onClick={() =>
+                          navigateFromSidebar({ to: '/local/$folderId', params: { folderId: String(el.id) } })
+                        }
                       >
                         <SidebarMenuSubButton className="cursor-pointer" isActive={`/local/${el.id}` === pathname}>
                           {el.name}
@@ -138,7 +146,10 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                           className="cursor-pointer"
                           isActive={pathname === `/network/${folder.id}`}
                           onClick={() =>
-                            void navigate({ to: '/network/$folderId', params: { folderId: String(folder.id) } })
+                            void navigateFromSidebar({
+                              to: '/network/$folderId',
+                              params: { folderId: String(folder.id) }
+                            })
                           }
                         >
                           {folder.name}
@@ -148,7 +159,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                     {(!serverUrl || !token) && (
                       <SidebarMenuSubButton
                         className="cursor-pointer"
-                        onClick={() => void navigate({ to: '/settings' })}
+                        onClick={() => void navigateFromSidebar({ to: '/settings' })}
                       >
                         请先配置服务端
                       </SidebarMenuSubButton>
@@ -166,7 +177,10 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
               </SidebarMenuItem>
             </Collapsible>
             <SidebarMenuItem>
-              <SidebarMenuButton isActive={pathname === '/settings'} onClick={() => void navigate({ to: '/settings' })}>
+              <SidebarMenuButton
+                isActive={pathname === '/settings'}
+                onClick={() => void navigateFromSidebar({ to: '/settings' })}
+              >
                 <Settings />
                 <span>App 设置</span>
               </SidebarMenuButton>
