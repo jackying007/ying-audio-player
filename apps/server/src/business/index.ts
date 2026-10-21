@@ -6,7 +6,16 @@ import { alias } from 'drizzle-orm/sqlite-core'
 import type { AppEnv } from '@/db'
 import { audioGarbage, audios, audioUploads, folders } from '@/db/schema'
 import { paramId, zValidator } from './base.validator'
-import { uploadMetadata, fileName, objectKey, uploadLimits, type AudioMetadata, type FileKind } from './metadata'
+import {
+  uploadMetadata,
+  fileName,
+  objectKey,
+  objectKeySql,
+  uploadLimits,
+  type AudioMetadata,
+  type FileKind
+} from './metadata'
+import { cleanupAudioGarbage, queueAudioCleanupRetry } from './cleanup'
 
 type StoredAudio = typeof audios.$inferSelect
 const excludedAudio = alias(audios, 'excluded')
@@ -25,6 +34,39 @@ api.post('/folders', zValidator('json', z.object({ name: fileName })), async c =
   const db = c.get('db')
   await db.insert(folders).values({ name }).onConflictDoNothing()
   return c.json(await db.select().from(folders).where(eq(folders.name, name)).get())
+})
+api.delete('/folders/:id', paramId, async c => {
+  const { id } = c.req.valid('param')
+  const db = c.get('db')
+  const queueKeys = (table: typeof audios | typeof audioUploads, kind: FileKind, staged = false) =>
+    db
+      .insert(audioGarbage)
+      .select(
+        db
+          .select({
+            key: staged ? objectKeySql(audioUploads.id, kind).as('key') : sql<string>`${table[`${kind}Key`]}`.as('key')
+          })
+          .from(table)
+          .where(and(eq(table.folderId, id), staged ? undefined : isNotNull(table[`${kind}Key`])))
+      )
+      .onConflictDoNothing()
+  await db.batch([
+    queueKeys(audios, 'audio'),
+    ...(['lyrics', 'cover'] as const).map(kind => queueKeys(audios, kind)),
+    ...(['audio', 'lyrics', 'cover'] as const).flatMap(kind => [
+      queueKeys(audioUploads, kind),
+      queueKeys(audioUploads, kind, true)
+    ]),
+    db.delete(audioUploads).where(eq(audioUploads.folderId, id)),
+    db.delete(audios).where(eq(audios.folderId, id)),
+    db.delete(folders).where(eq(folders.id, id))
+  ])
+  c.executionCtx.waitUntil(
+    cleanupAudioGarbage(db, c.env.R2).catch(() => {
+      console.error('网络文件夹资源清理未完成，将由定时任务重试')
+    })
+  )
+  return c.json({ ok: true })
 })
 api.get('/folders/:id/audios', paramId, async c => {
   const { id } = c.req.valid('param')
@@ -66,19 +108,26 @@ api.post('/folders/:id/uploads', paramId, zValidator('json', uploadMetadata), as
   if (existing && !requiredFiles.length && existing.metadata === serialized) {
     return c.json({ id: null, unchanged: true, requiredFiles })
   }
-  await db.insert(audioUploads).values({
-    id,
-    folderId,
-    filename: metadata.filename,
-    metadata: serialized,
-    audioKey,
-    lyricsKey,
-    coverKey,
-    audioHash: hashes?.audio ?? null,
-    lyricsHash: hashes?.lyrics ?? null,
-    coverHash: hashes?.cover ?? null,
-    createdAt: Date.now()
-  })
+  await db
+    .insert(audioUploads)
+    .values({
+      id,
+      folderId,
+      filename: metadata.filename,
+      metadata: serialized,
+      audioKey,
+      lyricsKey,
+      coverKey,
+      audioHash: hashes?.audio ?? null,
+      lyricsHash: hashes?.lyrics ?? null,
+      coverHash: hashes?.cover ?? null,
+      createdAt: Date.now()
+    })
+    .catch(async error => {
+      if (!(await db.select({ id: folders.id }).from(folders).where(eq(folders.id, folderId)).get()))
+        throw new HTTPException(404, { message: '文件夹不存在' })
+      throw error
+    })
   return c.json({ id, unchanged: false, requiredFiles }, 201)
 })
 
@@ -119,7 +168,11 @@ api.put('/uploads/:id/:kind', async c => {
   if (!stored) throw new HTTPException(409, { message: '文件已上传，请重新同步该歌曲' })
   const remaining = await db.select().from(audioUploads).where(eq(audioUploads.id, id)).get()
   if (!remaining || (!remaining.committed && remaining.createdAt < Date.now() - 86400000)) {
-    await c.env.R2.delete(key)
+    // A DELETE may already have drained its queue before this late PUT completed.
+    await c.env.R2.delete(key).catch(async () => {
+      await queueAudioCleanupRetry(db, key)
+      console.error('过期上传资源清理未完成，将由定时任务重试')
+    })
     throw new HTTPException(409, { message: '上传已过期，请重新同步' })
   }
   return c.json({ ok: true })

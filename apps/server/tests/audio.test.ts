@@ -88,7 +88,15 @@ let db: TestD1
 let bucket: TestBucket
 let env: Env
 const app = {
-  request: async (url: string, init: RequestInit, env: Env) => worker.fetch(new Request(url, init), env)
+  request: async (url: string, init: RequestInit, env: Env) =>
+    worker.fetch(new Request(url, init), env, {
+      waitUntil: (promise: Promise<unknown>) => background.push(promise)
+    } as unknown as ExecutionContext)
+}
+let background: Promise<unknown>[] = []
+async function finishBackground() {
+  await Promise.all(background)
+  background = []
 }
 const metadata = {
   filename: '音乐.MP3',
@@ -160,13 +168,249 @@ async function publishHashed(folderId: number, contents = fileContents) {
 }
 
 beforeEach(() => {
+  background = []
   db = new TestD1()
   bucket = new TestBucket()
   env = { D1: db, R2: bucket, API_TOKEN: 'test-key' } as unknown as Env
 })
-afterEach(() => db.sqlite.close())
+afterEach(async () => {
+  await finishBackground()
+  db.sqlite.close()
+})
 
 describe('audio API', () => {
+  test('deleting a folder removes its songs and uploads and is idempotent', async () => {
+    const f = await folder()
+    const id = await publishHashed(f.id)
+    const pending = await upload(f.id)
+    await files(pending)
+    const [song] = await audios(f.id)
+    expect((await request(`/folders/${f.id}`, 'DELETE')).status).toBe(200)
+    expect(await (await request('/folders')).json()).toEqual([])
+    expect((await request(`/folders/${f.id}/audios`)).status).toBe(404)
+    expect((await request(`/audios/${song.id}/audio`)).status).toBe(404)
+    expect((await request(`/uploads/${pending}/commit`, 'POST')).status).toBe(404)
+    expect((await request(`/uploads/${id}/commit`, 'POST')).status).toBe(404)
+    expect((await request(`/folders/${f.id}`, 'DELETE')).status).toBe(200)
+    await finishBackground()
+    expect(bucket.objects.size).toBe(0)
+    expect(await createDb(env.D1).select().from(audioGarbage)).toEqual([])
+  })
+  test('deletes empty folders and permits recreating the same name with a new ID', async () => {
+    const f = await folder()
+    expect(await (await request(`/folders/${f.id}`, 'DELETE')).json()).toEqual({ ok: true })
+    expect((await folder()).id).not.toBe(f.id)
+  })
+  test('folder deletion covers reused and legacy staged keys while preserving unrelated resources', async () => {
+    const f = await folder()
+    await publishHashed(f.id)
+    const reused = await hashedPlan(f.id, { title: 'pending metadata' })
+    expect(reused.requiredFiles).toEqual([])
+    const pending = await upload(f.id, { filename: 'legacy.mp3' })
+    db.sqlite.run('UPDATE audioUploads SET audioKey = NULL, lyricsKey = NULL, coverKey = NULL WHERE id = ?', [pending])
+    await files(pending)
+    const other = await folder('其他')
+    const otherId = await publishHashed(other.id)
+    await request(`/folders/${f.id}`, 'DELETE')
+    await finishBackground()
+    expect([...bucket.objects.keys()].sort()).toEqual(
+      ['audio', 'cover', 'lyrics'].map(kind => `music/${otherId}/${kind}`)
+    )
+    expect(await audios(other.id)).toHaveLength(1)
+    expect((await request(`/uploads/${reused.id}/commit`, 'POST')).status).toBe(404)
+  })
+  test('folder deletion rolls back records and queued keys together when the transaction fails', async () => {
+    const f = await folder()
+    await publishHashed(f.id)
+    db.sqlite.exec(
+      "CREATE TRIGGER reject_folder_delete BEFORE DELETE ON folders BEGIN SELECT RAISE(ABORT, 'locked'); END"
+    )
+    expect((await request(`/folders/${f.id}`, 'DELETE')).status).toBe(500)
+    expect(await audios(f.id)).toHaveLength(1)
+    expect(await createDb(env.D1).select().from(audioUploads)).toHaveLength(1)
+    expect(await createDb(env.D1).select().from(audioGarbage)).toEqual([])
+    expect(bucket.objects.size).toBe(3)
+  })
+  test('deletion responds before R2 finishes and retries failed files without blocking other files', async () => {
+    const f = await folder()
+    const id = await publishHashed(f.id)
+    const deleteObject = bucket.delete.bind(bucket)
+    let release!: () => void
+    const pending = new Promise<void>(resolve => {
+      release = resolve
+    })
+    bucket.delete = async key => {
+      await pending
+      if (key === `music/${id}/audio`) throw new Error('R2 unavailable')
+      await deleteObject(key)
+    }
+    const response = await request(`/folders/${f.id}`, 'DELETE')
+    expect(response.status).toBe(200)
+    expect(bucket.objects.size).toBe(3)
+    release()
+    await finishBackground()
+    expect([...bucket.objects.keys()]).toEqual([`music/${id}/audio`])
+    expect(await createDb(env.D1).select().from(audioGarbage)).toEqual([{ key: `music/${id}/audio` }])
+    bucket.delete = deleteObject
+    await cleanupAudio(createDb(env.D1), env.R2)
+    expect(bucket.objects.size).toBe(0)
+    expect(await createDb(env.D1).select().from(audioGarbage)).toEqual([])
+  })
+  test.each([false, true])(
+    'a late PUT cleans up after deletion already drained the queue (R2 failure: %s)',
+    async failed => {
+      const f = await folder()
+      const id = await upload(f.id)
+      const put = bucket.put.bind(bucket)
+      let release!: () => void
+      let started!: () => void
+      const pending = new Promise<void>(resolve => {
+        release = resolve
+      })
+      const ready = new Promise<void>(resolve => {
+        started = resolve
+      })
+      bucket.put = async (...args) => {
+        started()
+        await pending
+        return put(...args)
+      }
+      const uploading = request(`/uploads/${id}/audio`, 'PUT', 'music')
+      await ready
+      await request(`/folders/${f.id}`, 'DELETE')
+      await finishBackground()
+      const deleteObject = bucket.delete.bind(bucket)
+      if (failed)
+        bucket.delete = async () => {
+          throw new Error('R2 unavailable')
+        }
+      release()
+      expect((await uploading).status).toBe(409)
+      expect(await createDb(env.D1).select().from(audioGarbage)).toEqual(failed ? [{ key: `music/${id}/audio` }] : [])
+      bucket.delete = deleteObject
+      await cleanupAudio(createDb(env.D1), env.R2)
+      expect(bucket.objects.size).toBe(0)
+    }
+  )
+  test('an overlapping cleaner cannot erase a late PUT retry after its compensating deletion fails', async () => {
+    const f = await folder()
+    const id = await upload(f.id, { hasLyrics: false, coverMime: null })
+    const key = `music/${id}/audio`
+    const put = bucket.put.bind(bucket)
+    const putReady = Promise.withResolvers<void>()
+    const putPending = Promise.withResolvers<void>()
+    bucket.put = async (...args) => {
+      putReady.resolve()
+      await putPending.promise
+      return put(...args)
+    }
+    const uploading = request(`/uploads/${id}/audio`, 'PUT', 'music')
+    await putReady.promise
+    const deleteObject = bucket.delete.bind(bucket)
+    const cleanupReady = Promise.withResolvers<void>()
+    const cleanupPending = Promise.withResolvers<void>()
+    let first = true
+    bucket.delete = async object => {
+      if (object !== key) return deleteObject(object)
+      if (!first) throw new Error('compensating deletion failed')
+      first = false
+      await deleteObject(object)
+      cleanupReady.resolve()
+      await cleanupPending.promise
+    }
+    await request(`/folders/${f.id}`, 'DELETE')
+    await cleanupReady.promise
+    putPending.resolve()
+    expect((await uploading).status).toBe(409)
+    cleanupPending.resolve()
+    await finishBackground()
+    expect(bucket.objects.has(key)).toBe(true)
+    expect(await createDb(env.D1).select().from(audioGarbage)).toContainEqual({ key })
+    bucket.delete = deleteObject
+    await cleanupAudio(createDb(env.D1), env.R2)
+    expect(bucket.objects.size).toBe(0)
+  })
+  test('a folder deleted during upload creation cannot receive another upload', async () => {
+    const f = await folder()
+    await publishHashed(f.id)
+    const head = bucket.head.bind(bucket)
+    let deleted = false
+    bucket.head = async key => {
+      const result = await head(key)
+      if (!deleted) {
+        deleted = true
+        await request(`/folders/${f.id}`, 'DELETE')
+        await finishBackground()
+      }
+      return result
+    }
+    const response = await request(`/folders/${f.id}/uploads`, 'POST', {
+      ...metadata,
+      title: 'changed',
+      hashes: { audio: hash(fileContents.audio), lyrics: hash(fileContents.lyrics), cover: hash(fileContents.cover) }
+    })
+    expect(response.status).toBe(404)
+    expect(await createDb(env.D1).select().from(audioUploads)).toEqual([])
+  })
+  test('a commit paused during deletion cannot republish the deleted folder', async () => {
+    const f = await folder()
+    const id = await upload(f.id)
+    await files(id)
+    const head = bucket.head.bind(bucket)
+    let release!: () => void
+    let started!: () => void
+    const pending = new Promise<void>(resolve => {
+      release = resolve
+    })
+    const ready = new Promise<void>(resolve => {
+      started = resolve
+    })
+    bucket.head = async key => {
+      const result = await head(key)
+      started()
+      await pending
+      return result
+    }
+    const committing = request(`/uploads/${id}/commit`, 'POST')
+    await ready
+    await request(`/folders/${f.id}`, 'DELETE')
+    await finishBackground()
+    release()
+    expect((await committing).status).toBe(409)
+    expect(await createDb(env.D1).select().from(audioTable)).toEqual([])
+    expect(bucket.objects.size).toBe(0)
+  })
+  test('cleanup traverses more than one page and protects objects referenced by another folder', async () => {
+    const f = await folder()
+    const id = await publishHashed(f.id)
+    const keys = Array.from({ length: 305 }, (_, i) => ({ key: `garbage/${String(i).padStart(3, '0')}` }))
+    await createDb(env.D1)
+      .insert(audioGarbage)
+      .values([...keys, { key: `music/${id}/audio` }])
+    await cleanupAudio(createDb(env.D1), env.R2)
+    expect(await createDb(env.D1).select().from(audioGarbage)).toEqual([])
+    expect(bucket.objects.size).toBe(3)
+  })
+  test('DELETE requires authentication, validates IDs and is allowed in browser preflight', async () => {
+    expect((await request('/folders/1', 'DELETE', undefined, 'wrong')).status).toBe(401)
+    for (const id of ['invalid', '0', '-1', '1.5', '9007199254740992']) {
+      expect((await request(`/folders/${id}`, 'DELETE')).status).toBe(400)
+    }
+    const response = await app.request(
+      'http://localhost/api/folders/1',
+      {
+        method: 'OPTIONS',
+        headers: {
+          Origin: 'http://localhost:1420',
+          'Access-Control-Request-Method': 'DELETE',
+          'Access-Control-Request-Headers': 'authorization'
+        }
+      },
+      env
+    )
+    expect(response.status).toBe(204)
+    expect(response.headers.get('Access-Control-Allow-Methods')).toContain('DELETE')
+  })
   test('identical hashes and metadata skip the song without creating another upload', async () => {
     const f = await folder()
     const id = await publishHashed(f.id)

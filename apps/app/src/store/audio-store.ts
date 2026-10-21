@@ -174,15 +174,23 @@ function stopPlayback(audioList: AudioInfo[] = []) {
 }
 
 export function removeLocalFolderFromPlayback(folderId: number) {
+  removeFolderFromPlayback(folderId, 'local')
+}
+
+export function removeNetworkFolderFromPlayback(folderId: number) {
+  removeFolderFromPlayback(folderId, 'network')
+}
+
+function removeFolderFromPlayback(folderId: number, source: 'local' | 'network') {
   const player = useAudioStore.getState()
-  const belongsToFolder = (item: AudioInfo) => item.source !== 'network' && item.folderId === folderId
+  const belongsToFolder = (item: AudioInfo) => (item.source ?? 'local') === source && item.folderId === folderId
   const audioList = player.audioList.filter(item => !belongsToFolder(item))
   if (player.currentAudioInfo && belongsToFolder(player.currentAudioInfo)) {
     stopPlayback(audioList)
   } else if (audioList.length !== player.audioList.length) {
     useAudioStore.setState({ audioList })
   }
-  invalidateAudioCache(folderId)
+  invalidateAudioCache(folderId, source)
 }
 
 useNetworkSettings.subscribe((state, previous) => {

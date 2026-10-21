@@ -57,6 +57,7 @@ Tauri 自动启动 Vite 并打开窗口。Vite 固定使用 `http://localhost:14
 ## 音乐与同步约定
 
 - 侧栏「本地」展开后可删除文件夹，确认后仅移除导入记录和本地歌曲索引，保留磁盘原文件及云端歌曲，可随时重新导入。移除当前播放歌曲所在文件夹会停止播放，并从队列清除该文件夹歌曲；同步或刷新期间不可移除。
+- 侧栏「网络」展开后可删除整个云端文件夹，确认后删除其中全部歌曲、音频、歌词、封面及上传暂存资源，不可恢复；保留本地原始文件与已下载的磁盘缓存。同名本地文件夹同步与网络删除互斥。删除成功后停止该文件夹的播放、清除队列条目和内存缓存；当前位于该文件夹时返回网络首页。以后主动同步同名本地文件夹可重新创建云端文件夹。
 - 只扫描目录直接子文件中的 MP3，扩展名不区分大小写；不递归。同名 LRC 为歌词，封面取自音频内嵌图片。
 - 本地 SQLite 为**可执行文件同目录**的 `localAudio.sqlite3`，开发时通常在 `apps/app/src-tauri/target/debug`；目录需可写，移动程序或清理构建目录会影响索引。
 - 查询、重复导入和同步都使用已有索引，不隐式扫描；文件增删或标签变化后先手动刷新。刷新事务保留仍存在歌曲的 ID，失败保留旧索引；元数据读取失败仍可入库并显示警告。
@@ -71,7 +72,7 @@ Tauri 自动启动 Vite 并打开窗口。Vite 固定使用 `http://localhost:14
 
 ## 服务端数据与接口
 
-- API 基础路径为 `/api`：`GET/POST /folders`、`GET /folders/:id/audios`、`POST /folders/:id/uploads`、`PUT /uploads/:id/{audio,lyrics,cover}`、`POST /uploads/:id/commit`、`GET /audios/:id/{audio,lyrics,cover}`。
+- API 基础路径为 `/api`：`GET/POST /folders`、`DELETE /folders/:id`、`GET /folders/:id/audios`、`POST /folders/:id/uploads`、`PUT /uploads/:id/{audio,lyrics,cover}`、`POST /uploads/:id/commit`、`GET /audios/:id/{audio,lyrics,cover}`。文件夹删除幂等返回 `{ ok: true }`，D1 原子登记全部资源清理并删除文件夹、歌曲及上传记录，随后立即后台尝试清理 R2；失败保留队列，由每小时任务重试。
 - D1/R2 绑定名为 `D1`、`R2`；schema 位于 `apps/server/src/db/schema/audio.ts`，歌曲按 `folderId + filename` 唯一匹配。
 - `folders` 保存文件夹；`audios` 保存已发布的元数据、R2 引用和文件 hash。`version` 是发布时的上传 ID，用于 URL 缓存区分和拒绝旧版本请求。
 - `audioUploads` 保存待发布元数据、hash 和复用/新上传的对象引用；其 hash 用于本次上传校验，`audios` 的 hash 用于下次比较。两者分别代表待发布和已发布状态，避免失败上传污染旧版本。

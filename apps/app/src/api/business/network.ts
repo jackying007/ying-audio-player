@@ -1,6 +1,6 @@
 import type { HttpRequest } from '@jying/http'
 import { useNetworkSettings } from '@/store/network-settings'
-import type { FileKind, NetworkAudio, NetworkFolder, UploadMetadata, UploadPlan } from '../types'
+import type { FileKind, NetworkAudio, NetworkFolder, NetworkMutationResult, UploadMetadata, UploadPlan } from '../types'
 
 function mediaPath(url: string) {
   const prefix = `${useNetworkSettings.getState().serverUrl}/api`
@@ -16,6 +16,9 @@ export default function (http: HttpRequest) {
     createFolder(name: string, signal?: AbortSignal) {
       return http.post<NetworkFolder>('/folders', { data: { name }, signal })
     },
+    deleteFolder(id: number) {
+      return http.delete<NetworkMutationResult>(`/folders/${id}`)
+    },
     listAudios(id: string) {
       return http.get<NetworkAudio[]>(`/folders/${encodeURIComponent(id)}/audios`)
     },
@@ -23,10 +26,10 @@ export default function (http: HttpRequest) {
       return http.post<UploadPlan>(`/folders/${folderId}/uploads`, { data, signal })
     },
     uploadFile(id: string, kind: FileKind, body: Blob, signal?: AbortSignal) {
-      return http.put<{ ok: boolean }>(`/uploads/${encodeURIComponent(id)}/${kind}`, { body, signal })
+      return http.put<NetworkMutationResult>(`/uploads/${encodeURIComponent(id)}/${kind}`, { body, signal })
     },
     commitUpload(id: string, signal?: AbortSignal) {
-      return http.post<{ ok: boolean }>(`/uploads/${encodeURIComponent(id)}/commit`, { signal })
+      return http.post<NetworkMutationResult>(`/uploads/${encodeURIComponent(id)}/commit`, { signal })
     },
     async getAudio(url: string, signal?: AbortSignal) {
       return http.get(mediaPath(url), { responseType: 'arrayBuffer', signal })

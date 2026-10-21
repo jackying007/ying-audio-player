@@ -1,4 +1,4 @@
-import { afterAll, afterEach, beforeEach, expect, mock, test } from 'bun:test'
+import { afterAll, afterEach, beforeEach, expect, mock, spyOn, test } from 'bun:test'
 import type { NetworkCacheKey } from '../src/lib/network-cache'
 
 class TestAudio {
@@ -105,7 +105,8 @@ const toNetworkAudio = (row: Parameters<typeof convertNetworkAudio>[0]) => ({
 })
 const { playAudio, playNextAudio, cachedMap, invalidateAudioCache, useAudioStore, PlayState } =
   await import('../src/store/audio-store')
-const { useNetworkAudioStore, loadNetworkAudios, syncLocalFolder } = await import('../src/store/network-audio-store')
+const { useNetworkAudioStore, loadNetworkFolders, loadNetworkAudios, syncLocalFolder, removeNetworkFolder } =
+  await import('../src/store/network-audio-store')
 const { useLocalAudioStore, removeLocalFolder, loadFolderAudios, refreshFolder, playAllLocalAudios } =
   await import('../src/store/local-audio-store')
 const { useAppStore } = await import('../src/store/app-store')
@@ -176,7 +177,13 @@ function syncState(running: boolean) {
 }
 
 beforeEach(() => {
-  useAppStore.setState({ playMode: 'sequence', removingFolderIds: [], importing: false, loading: false })
+  useAppStore.setState({
+    playMode: 'sequence',
+    removingFolderIds: [],
+    importing: false,
+    loading: false,
+    localFolderList: []
+  })
   localInvokeHook = undefined
   localReadHook = undefined
   useNetworkSettings.setState({ serverUrl: '', token: '' })
@@ -210,6 +217,228 @@ test('removing a local folder clears its index state, queue and cache, preservin
   expect(TestAudio.instance.paused).toBe(true)
   expect(TestAudio.instance.src).toBe('')
   expect(cachedMap.has(local.link)).toBe(false)
+})
+
+test('deleting a network folder clears its list, playback and memory cache but preserves disk and local files', async () => {
+  const remote = toNetworkAudio(row)
+  await playAndSave(remote, { audioList: [remote, local], playlistFolderId: 1 })
+  const diskBefore = [...diskEntries.entries()]
+  const objectUrl = cachedMap.get(remote.link)!.objectUrl
+  const revoke = spyOn(URL, 'revokeObjectURL')
+  useNetworkAudioStore.setState({ entries: { '1': { audios: [remote], loading: false } } })
+  fetchHandler = async (url, init) => {
+    expect(url).toBe('http://localhost:8787/api/folders/1')
+    expect(init.method).toBe('DELETE')
+    return json({ ok: true })
+  }
+  expect(await removeNetworkFolder(1)).toBe(true)
+  expect(useNetworkAudioStore.getState().folders).toEqual([])
+  expect(useNetworkAudioStore.getState().entries['1']).toBeUndefined()
+  expect(useAudioStore.getState().currentAudioInfo).toBeUndefined()
+  expect(useAudioStore.getState().audioList).toEqual([local])
+  expect(TestAudio.instance.src).toBe('')
+  expect(cachedMap.has(remote.link)).toBe(false)
+  expect(revoke).toHaveBeenCalledWith(objectUrl)
+  revoke.mockRestore()
+  expect([...diskEntries.entries()]).toEqual(diskBefore)
+  expect(files.has(local.link)).toBe(true)
+})
+
+test('failed network deletion preserves playback and lists and permits a retry', async () => {
+  const remote = toNetworkAudio(row)
+  await playAndSave(remote, { audioList: [remote], playlistFolderId: 1 })
+  useNetworkAudioStore.setState({ entries: { '1': { audios: [remote], loading: false } } })
+  const before = useAudioStore.getState()
+  fetchHandler = async () => new Response('密钥错误', { status: 401 })
+  await expect(removeNetworkFolder(1)).rejects.toMatchObject({ status: 401, message: '密钥错误' })
+  expect(useNetworkAudioStore.getState().folders).toHaveLength(1)
+  expect(useNetworkAudioStore.getState().entries['1'].audios).toEqual([remote])
+  expect(useNetworkAudioStore.getState().removingFolders).toEqual([])
+  expect(useAudioStore.getState()).toBe(before)
+  expect(cachedMap.has(remote.link)).toBe(true)
+  fetchHandler = async () => json({ ok: true })
+  expect(await removeNetworkFolder(1)).toBe(true)
+})
+
+test('network deletion and syncing local folders with the same name exclude each other', async () => {
+  prepareLocalRemoval()
+  useNetworkAudioStore.setState({ folders: [{ id: 7, name: '音乐' }], syncs: { '1': syncState(true) } })
+  let calls = 0
+  const ready = deferred<void>()
+  const pending = deferred<Response>()
+  fetchHandler = async (_url, init) => {
+    expect(init.method).toBe('DELETE')
+    calls++
+    ready.resolve()
+    return pending.promise
+  }
+  expect(await removeNetworkFolder(7)).toBe(false)
+  expect(calls).toBe(0)
+  useNetworkAudioStore.setState({ syncs: {} })
+  const deleting = removeNetworkFolder(7)
+  await ready.promise
+  expect(useNetworkAudioStore.getState().removingFolders).toEqual([{ id: 7, name: '音乐' }])
+  expect(await removeNetworkFolder(7)).toBe(false)
+  await syncLocalFolder('1')
+  expect(calls).toBe(1)
+  expect(useNetworkAudioStore.getState().syncs['1']).toBeUndefined()
+  pending.resolve(json({ ok: true }))
+  expect(await deleting).toBe(true)
+  expect(useNetworkAudioStore.getState().removingFolders).toEqual([])
+})
+
+test('deleting a network folder invalidates pending folder and song list responses', async () => {
+  const foldersReady = deferred<void>()
+  const audiosReady = deferred<void>()
+  const foldersPending = deferred<Response>()
+  const audiosPending = deferred<Response>()
+  fetchHandler = async (url, init) => {
+    if (init.method === 'DELETE') return json({ ok: true })
+    if (url.endsWith('/folders')) {
+      foldersReady.resolve()
+      return foldersPending.promise
+    }
+    audiosReady.resolve()
+    return audiosPending.promise
+  }
+  const loadingFolders = loadNetworkFolders()
+  const loadingAudios = loadNetworkAudios('1')
+  await Promise.all([foldersReady.promise, audiosReady.promise])
+  expect(await removeNetworkFolder(1)).toBe(true)
+  foldersPending.resolve(json([{ id: 1, name: '我的音乐' }]))
+  audiosPending.resolve(json([row]))
+  await Promise.all([loadingFolders, loadingAudios])
+  expect(useNetworkAudioStore.getState()).toMatchObject({ folders: [], entries: {}, loading: false })
+  fetchHandler = async () => json([{ id: 1, name: '我的音乐' }])
+  await loadNetworkFolders()
+  await loadNetworkAudios('1')
+  expect(useNetworkAudioStore.getState().folders).toEqual([])
+  expect(useNetworkAudioStore.getState().entries).toEqual({})
+})
+
+test('a folder refresh cannot release a pending deletion lock on the same local folder name', async () => {
+  prepareLocalRemoval()
+  useNetworkAudioStore.setState({ folders: [{ id: 7, name: '音乐' }] })
+  const ready = deferred<void>()
+  const pending = deferred<Response>()
+  fetchHandler = async (_url, init) => {
+    if (init.method === 'DELETE') {
+      ready.resolve()
+      return pending.promise
+    }
+    expect(init.method).toBe('GET')
+    return json([])
+  }
+  const deleting = removeNetworkFolder(7)
+  await ready.promise
+  await loadNetworkFolders()
+  expect(useNetworkAudioStore.getState().folders).toEqual([])
+  await syncLocalFolder('1')
+  expect(useNetworkAudioStore.getState().syncs['1']).toBeUndefined()
+  pending.resolve(json({ ok: true }))
+  expect(await deleting).toBe(true)
+})
+
+test('switching connections prevents an old deletion response from changing new lists and playback', async () => {
+  const ready = deferred<void>()
+  const pending = deferred<Response>()
+  let oldSignal: AbortSignal | null | undefined
+  fetchHandler = async (_url, init) => {
+    oldSignal = init.signal
+    ready.resolve()
+    return pending.promise
+  }
+  const deleting = removeNetworkFolder(1)
+  await ready.promise
+  useNetworkSettings.setState({ token: 'other' })
+  const remote = toNetworkAudio(row)
+  useNetworkAudioStore.setState({ folders: [{ id: 1, name: '新连接' }] })
+  useAudioStore.setState({ currentAudioInfo: remote, audioList: [remote] })
+  const state = useAudioStore.getState()
+  pending.resolve(json({ ok: true }))
+  expect(await deleting).toBe(false)
+  expect(oldSignal?.aborted).toBe(true)
+  expect(useNetworkAudioStore.getState().folders).toEqual([{ id: 1, name: '新连接' }])
+  expect(useNetworkAudioStore.getState().removingFolders).toEqual([])
+  expect(useAudioStore.getState()).toBe(state)
+})
+
+test('deleting a network folder stops an in-flight audio download and ignores its late response', async () => {
+  const remote = toNetworkAudio(row)
+  const ready = deferred<void>()
+  const pending = deferred<Response>()
+  let signal: AbortSignal | null | undefined
+  fetchHandler = async (_url, init) => {
+    if (init.method === 'DELETE') return json({ ok: true })
+    signal = init.signal
+    ready.resolve()
+    return pending.promise
+  }
+  const playing = playAudio(remote, { audioList: [remote], playlistFolderId: 1 })
+  await ready.promise
+  await removeNetworkFolder(1)
+  expect(signal?.aborted).toBe(true)
+  pending.resolve(new Response('music'))
+  await playing
+  expect(useAudioStore.getState().currentAudioInfo).toBeUndefined()
+  expect(useAudioStore.getState().audioList).toEqual([])
+  expect(TestAudio.instance.src).toBe('')
+  expect(cachedMap.has(remote.link)).toBe(false)
+})
+
+test('deleting a network folder cancels a disk lookup without downloading or restoring playback', async () => {
+  const ready = deferred<void>()
+  const pending = deferred<DiskEntry | null>()
+  diskReadHook = async () => {
+    ready.resolve()
+    return pending.promise
+  }
+  fetchHandler = async (_url, init) => {
+    expect(init.method).toBe('DELETE')
+    return json({ ok: true })
+  }
+  const playing = playAudio(toNetworkAudio(row))
+  await ready.promise
+  await removeNetworkFolder(1)
+  pending.resolve(null)
+  expect(await playing).toBe(false)
+  expect(useAudioStore.getState().currentAudioInfo).toBeUndefined()
+  expect(cachedMap.size).toBe(0)
+})
+
+test('network deletion preserves local playback and another network folder with the same numeric IDs', async () => {
+  const remote = toNetworkAudio(row)
+  const other = toNetworkAudio({ ...row, id: 2, folderId: 2 })
+  await playAndSave(remote)
+  await playAndSave(other)
+  await playAudio(local, { audioList: [local, remote, other], playlistFolderId: 1 })
+  const src = TestAudio.instance.src
+  fetchHandler = async () => json({ ok: true })
+  await removeNetworkFolder(1)
+  expect(useAudioStore.getState().currentAudioInfo).toBe(local)
+  expect(useAudioStore.getState().audioList).toEqual([local, other])
+  expect(TestAudio.instance.src).toBe(src)
+  expect(TestAudio.instance.paused).toBe(false)
+  expect(cachedMap.has(local.link)).toBe(true)
+  expect(cachedMap.has(other.link)).toBe(true)
+  expect(cachedMap.has(remote.link)).toBe(false)
+})
+
+test('a later explicit sync recreates a deleted network folder by name', async () => {
+  prepareLocalRemoval()
+  useNetworkAudioStore.setState({ folders: [{ id: 1, name: '音乐' }] })
+  fetchHandler = async () => json({ ok: true })
+  await removeNetworkFolder(1)
+  fetchHandler = async (url, init) => {
+    if (url.endsWith('/folders') && init.method === 'POST') return json({ id: 3, name: '音乐' })
+    if (url.endsWith('/folders')) return json([{ id: 3, name: '音乐' }])
+    if (url.endsWith('/uploads')) return json({ id: null, unchanged: true, requiredFiles: [] })
+    if (url.endsWith('/audios')) return json([{ ...row, folderId: 3 }])
+    throw new Error(`Unexpected request: ${url}`)
+  }
+  await syncLocalFolder('1')
+  expect(useNetworkAudioStore.getState().folders).toEqual([{ id: 3, name: '音乐' }])
+  expect(useNetworkAudioStore.getState().syncs['1']).toMatchObject({ running: false, skipped: 1, failures: [] })
 })
 
 test('failed removal preserves the folder, queue and current playback and can be retried', async () => {

@@ -14,6 +14,7 @@ import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as TestRouteImport } from './routes/test'
 import { Route as LocalIndexRouteImport } from './routes/local/index'
 import { Route as LocalFolderIdRouteImport } from './routes/local/$folderId'
+import { Route as NetworkIndexRouteImport } from './routes/network/index'
 import { Route as NetworkFolderIdRouteImport } from './routes/network/$folderId'
 
 const IndexRoute = IndexRouteImport.update({
@@ -41,6 +42,11 @@ const LocalFolderIdRoute = LocalFolderIdRouteImport.update({
   path: '/local/$folderId',
   getParentRoute: () => rootRouteImport,
 } as any)
+const NetworkIndexRoute = NetworkIndexRouteImport.update({
+  id: '/network/',
+  path: '/network/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const NetworkFolderIdRoute = NetworkFolderIdRouteImport.update({
   id: '/network/$folderId',
   path: '/network/$folderId',
@@ -54,6 +60,7 @@ export interface FileRoutesByFullPath {
   '/local/$folderId': typeof LocalFolderIdRoute
   '/network/$folderId': typeof NetworkFolderIdRoute
   '/local/': typeof LocalIndexRoute
+  '/network/': typeof NetworkIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -62,6 +69,7 @@ export interface FileRoutesByTo {
   '/local/$folderId': typeof LocalFolderIdRoute
   '/network/$folderId': typeof NetworkFolderIdRoute
   '/local': typeof LocalIndexRoute
+  '/network': typeof NetworkIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -71,6 +79,7 @@ export interface FileRoutesById {
   '/local/$folderId': typeof LocalFolderIdRoute
   '/network/$folderId': typeof NetworkFolderIdRoute
   '/local/': typeof LocalIndexRoute
+  '/network/': typeof NetworkIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -81,6 +90,7 @@ export interface FileRouteTypes {
     | '/local/$folderId'
     | '/network/$folderId'
     | '/local/'
+    | '/network/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -89,6 +99,7 @@ export interface FileRouteTypes {
     | '/local/$folderId'
     | '/network/$folderId'
     | '/local'
+    | '/network'
   id:
     | '__root__'
     | '/'
@@ -97,6 +108,7 @@ export interface FileRouteTypes {
     | '/local/$folderId'
     | '/network/$folderId'
     | '/local/'
+    | '/network/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -106,6 +118,7 @@ export interface RootRouteChildren {
   LocalFolderIdRoute: typeof LocalFolderIdRoute
   NetworkFolderIdRoute: typeof NetworkFolderIdRoute
   LocalIndexRoute: typeof LocalIndexRoute
+  NetworkIndexRoute: typeof NetworkIndexRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -145,6 +158,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LocalFolderIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/network/': {
+      id: '/network/'
+      path: '/network'
+      fullPath: '/network/'
+      preLoaderRoute: typeof NetworkIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/network/$folderId': {
       id: '/network/$folderId'
       path: '/network/$folderId'
@@ -162,6 +182,7 @@ const rootRouteChildren: RootRouteChildren = {
   LocalFolderIdRoute: LocalFolderIdRoute,
   NetworkFolderIdRoute: NetworkFolderIdRoute,
   LocalIndexRoute: LocalIndexRoute,
+  NetworkIndexRoute: NetworkIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

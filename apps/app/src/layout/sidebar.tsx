@@ -13,7 +13,6 @@ import {
   SidebarMenuItem,
   SidebarMenuSub,
   SidebarMenuSubButton,
-  SidebarMenuSubItem,
   useSidebar
   // SidebarFooter,
   // SidebarRail
@@ -25,6 +24,7 @@ import { playAllLocalAudios } from '@/store/local-audio-store'
 import { loadNetworkFolders, useNetworkAudioStore } from '@/store/network-audio-store'
 import { useNetworkSettings } from '@/store/network-settings'
 import { LocalFolderItem } from '@/routes/-shared/local-folder-item'
+import { NetworkFolderItem } from '@/routes/-shared/network-folder-item'
 
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const pathname = useLocation({ select: location => location.pathname })
@@ -134,20 +134,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                 <CollapsibleContent>
                   <SidebarMenuSub>
                     {networkFolders.map(folder => (
-                      <SidebarMenuSubItem key={folder.id}>
-                        <SidebarMenuSubButton
-                          className="cursor-pointer"
-                          isActive={pathname === `/network/${folder.id}`}
-                          onClick={() =>
-                            void navigateFromSidebar({
-                              to: '/network/$folderId',
-                              params: { folderId: String(folder.id) }
-                            })
-                          }
-                        >
-                          {folder.name}
-                        </SidebarMenuSubButton>
-                      </SidebarMenuSubItem>
+                      <NetworkFolderItem key={folder.id} folder={folder} onNavigate={navigateFromSidebar} />
                     ))}
                     {(!serverUrl || !token) && (
                       <SidebarMenuSubButton

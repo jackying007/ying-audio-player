@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { sql, type SQLWrapper } from 'drizzle-orm'
 
 export const fileName = z
   .string()
@@ -42,4 +43,7 @@ export const uploadMetadata = audioMetadata
   )
 export const uploadLimits = { audio: 50 * 1024 * 1024, lyrics: 1024 * 1024, cover: 10 * 1024 * 1024 }
 export type FileKind = keyof typeof uploadLimits
-export const objectKey = (id: string, kind: FileKind) => `music/${id}/${kind}`
+const objectKeyPrefix = 'music/'
+export const objectKey = (id: string, kind: FileKind) => `${objectKeyPrefix}${id}/${kind}`
+export const objectKeySql = (id: SQLWrapper, kind: FileKind) =>
+  sql<string>`${objectKeyPrefix} || ${id} || ${`/${kind}`}`

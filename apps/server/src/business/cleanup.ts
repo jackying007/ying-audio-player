@@ -1,7 +1,14 @@
-import { and, eq, exists, gte, lt, notExists, or } from 'drizzle-orm'
+import { and, asc, eq, exists, gt, gte, lt, notExists, or, sql } from 'drizzle-orm'
 import type { Database } from '@/db'
 import { audioGarbage, audios, audioUploads } from '@/db/schema'
 import { objectKey } from './metadata'
+
+export async function queueAudioCleanupRetry(db: Database, key: string) {
+  // Renew SQLite's implicit rowid so an older cleaner cannot erase this retry.
+  // A rowid collision fails rather than replacing an unrelated queue entry.
+  await db.run(sql`INSERT INTO ${audioGarbage} (rowid, key) VALUES (random(), ${key})
+    ON CONFLICT (key) DO UPDATE SET rowid = excluded.rowid`)
+}
 
 export async function cleanupAudio(db: Database, bucket: R2Bucket) {
   const expired = await db
@@ -25,6 +32,10 @@ export async function cleanupAudio(db: Database, bucket: R2Bucket) {
       db.delete(audioUploads).where(eq(audioUploads.id, id))
     ])
   }
+  await cleanupAudioGarbage(db, bucket)
+}
+
+export async function cleanupAudioGarbage(db: Database, bucket: R2Bucket) {
   const liveReference = db
     .select({ id: audios.id })
     .from(audios)
@@ -50,15 +61,31 @@ export async function cleanupAudio(db: Database, bucket: R2Bucket) {
         )
       )
     )
-  const garbage = await db
-    .select()
-    .from(audioGarbage)
-    .where(and(notExists(liveReference), notExists(pendingReference)))
-    .limit(300)
-  for (const { key } of garbage) {
-    await bucket.delete(key)
-    await db.delete(audioGarbage).where(eq(audioGarbage.key, key))
-  }
+  let cursor: string | undefined
+  let failure: unknown
+  let hasMore = true
+  do {
+    const garbage = await db
+      .select({ key: audioGarbage.key, generation: sql<string>`cast(${audioGarbage}.rowid as text)` })
+      .from(audioGarbage)
+      .where(
+        and(notExists(liveReference), notExists(pendingReference), cursor ? gt(audioGarbage.key, cursor) : undefined)
+      )
+      .orderBy(asc(audioGarbage.key))
+      .limit(300)
+    if (!garbage.length) break
+    for (const { key, generation } of garbage) {
+      try {
+        await bucket.delete(key)
+        await db.delete(audioGarbage).where(and(eq(audioGarbage.key, key), sql`${audioGarbage}.rowid = ${generation}`))
+      } catch (error) {
+        failure = error
+      }
+    }
+    cursor = garbage[garbage.length - 1].key
+    hasMore = garbage.length === 300
+  } while (hasMore)
   // Drop queue entries which are still the current version, without deleting their objects.
   await db.delete(audioGarbage).where(exists(liveReference))
+  if (failure) throw failure
 }

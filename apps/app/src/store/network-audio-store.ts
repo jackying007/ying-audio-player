@@ -5,7 +5,13 @@ import { localAudio } from '@/lib/local-audio'
 import { useNetworkSettings } from './network-settings'
 import { useAppStore } from './app-store'
 import { useLocalAudioStore } from './local-audio-store'
-import { invalidateAudioCache, playAudio, useAudioStore, type AudioInfo } from './audio-store'
+import {
+  invalidateAudioCache,
+  playAudio,
+  removeNetworkFolderFromPlayback,
+  useAudioStore,
+  type AudioInfo
+} from './audio-store'
 import { connectionSignal, networkApi, HttpError, type NetworkFolder } from '@/api'
 import { toNetworkAudio } from '@/lib/network-audio'
 
@@ -25,18 +31,27 @@ type State = {
   error?: string
   entries: Record<string, Entry>
   syncs: Record<string, SyncState>
+  removingFolders: NetworkFolder[]
 }
-export const useNetworkAudioStore = create<State>(() => ({ folders: [], loading: false, entries: {}, syncs: {} }))
+export const useNetworkAudioStore = create<State>(() => ({
+  folders: [],
+  loading: false,
+  entries: {},
+  syncs: {},
+  removingFolders: []
+}))
 let folderRequest = 0
 const audioRequests = new Map<string, number>()
 let audioRequestSequence = 0
+const removedFolderIds = new Set<number>()
 
 export async function loadNetworkFolders() {
   const request = ++folderRequest
   useNetworkAudioStore.setState({ loading: true, error: undefined })
   try {
     const folders = await networkApi.listFolders()
-    if (request === folderRequest) useNetworkAudioStore.setState({ folders })
+    if (request === folderRequest)
+      useNetworkAudioStore.setState({ folders: folders.filter(folder => !removedFolderIds.has(folder.id)) })
   } catch (error) {
     if (request === folderRequest) useNetworkAudioStore.setState({ error: String(error) })
   } finally {
@@ -49,6 +64,11 @@ function updateEntry(id: string, patch: Partial<Entry>) {
   }))
 }
 export async function loadNetworkAudios(id: string) {
+  if (
+    removedFolderIds.has(Number(id)) ||
+    useNetworkAudioStore.getState().removingFolders.some(folder => folder.id === Number(id))
+  )
+    return
   const request = ++audioRequestSequence
   audioRequests.set(id, request)
   updateEntry(id, { loading: true, error: undefined })
@@ -75,6 +95,11 @@ export async function loadNetworkAudios(id: string) {
   }
 }
 export async function playNetworkAudio(audio: AudioInfo, folderId: string) {
+  if (
+    removedFolderIds.has(Number(folderId)) ||
+    useNetworkAudioStore.getState().removingFolders.some(folder => folder.id === Number(folderId))
+  )
+    return
   const audios = useNetworkAudioStore.getState().entries[folderId]?.audios
   if (audios) await playAudio(audio, { audioList: audios, playlistFolderId: Number(folderId) })
 }
@@ -82,8 +107,45 @@ useNetworkSettings.subscribe((state, previous) => {
   if (state.serverUrl === previous.serverUrl && state.token === previous.token) return
   ++folderRequest
   audioRequests.clear()
-  useNetworkAudioStore.setState({ folders: [], loading: false, entries: {}, error: undefined })
+  removedFolderIds.clear()
+  useNetworkAudioStore.setState({ folders: [], loading: false, entries: {}, error: undefined, removingFolders: [] })
 })
+
+export async function removeNetworkFolder(folderId: number): Promise<boolean> {
+  const state = useNetworkAudioStore.getState()
+  const folder = state.folders.find(item => item.id === folderId)
+  if (!folder || state.removingFolders.some(folder => folder.id === folderId)) return false
+  if (
+    useAppStore
+      .getState()
+      .localFolderList.some(local => local.name === folder.name && state.syncs[String(local.id)]?.running)
+  )
+    return false
+  const signal = connectionSignal()
+  useNetworkAudioStore.setState(state => ({ removingFolders: [...state.removingFolders, folder] }))
+  try {
+    await networkApi.deleteFolder(folderId)
+    if (signal.aborted) return false
+    removedFolderIds.add(folderId)
+    ++folderRequest
+    audioRequests.delete(String(folderId))
+    useNetworkAudioStore.setState(state => {
+      const entries = { ...state.entries }
+      delete entries[String(folderId)]
+      return { folders: state.folders.filter(folder => folder.id !== folderId), entries, loading: false }
+    })
+    removeNetworkFolderFromPlayback(folderId)
+    return true
+  } catch (error) {
+    if (signal.aborted) return false
+    throw error
+  } finally {
+    if (!signal.aborted)
+      useNetworkAudioStore.setState(state => ({
+        removingFolders: state.removingFolders.filter(folder => folder.id !== folderId)
+      }))
+  }
+}
 
 function updateSync(id: string, patch: Partial<SyncState>) {
   useNetworkAudioStore.setState(state => ({ syncs: { ...state.syncs, [id]: { ...state.syncs[id], ...patch } } }))
@@ -104,6 +166,7 @@ export async function syncLocalFolder(id: string) {
   if (!entry?.audios || entry.loading || entry.refreshing || useNetworkAudioStore.getState().syncs[id]?.running) return
   const folder = useAppStore.getState().localFolderList.find(item => item.id === Number(id))
   if (!folder) return
+  if (useNetworkAudioStore.getState().removingFolders.some(remote => remote.name === folder.name)) return
   const signal = connectionSignal()
   const audios = [...entry.audios]
   const failures: string[] = []
