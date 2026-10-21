@@ -23,8 +23,8 @@ import { usePlayerOpen } from '@/store/audio-store'
 import { playAllLocalAudios } from '@/store/local-audio-store'
 import { loadNetworkFolders, playAllNetworkAudios, useNetworkAudioStore } from '@/store/network-audio-store'
 import { useNetworkSettings } from '@/store/network-settings'
-import { LocalFolderItem } from '@/routes/-shared/local-folder-item'
-import { NetworkFolderItem } from '@/routes/-shared/network-folder-item'
+import { LocalFolderItem } from './local-folder-item'
+import { NetworkFolderItem } from './network-folder-item'
 import { connectionSignal } from '@/api'
 
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
