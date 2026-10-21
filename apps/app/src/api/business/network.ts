@@ -22,7 +22,7 @@ export default function (http: HttpRequest) {
     createUpload(folderId: number, data: UploadMetadata, signal?: AbortSignal) {
       return http.post<UploadPlan>(`/folders/${folderId}/uploads`, { data, signal })
     },
-    putFile(id: string, kind: FileKind, body: Blob, signal?: AbortSignal) {
+    uploadFile(id: string, kind: FileKind, body: Blob, signal?: AbortSignal) {
       return http.put<{ ok: boolean }>(`/uploads/${encodeURIComponent(id)}/${kind}`, { body, signal })
     },
     commitUpload(id: string, signal?: AbortSignal) {

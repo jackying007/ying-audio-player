@@ -19,9 +19,7 @@ function publicAudio(row: StoredAudio) {
 
 export const api = new Hono<AppEnv>()
 
-api.get('/folders', async c =>
-  c.json(await c.get('db').select().from(folders).orderBy(asc(folders.name), asc(folders.id)))
-)
+api.get('/folders', async c => c.json(await c.get('db').select().from(folders).orderBy(asc(folders.id))))
 api.post('/folders', zValidator('json', z.object({ name: fileName })), async c => {
   const { name } = c.req.valid('json')
   const db = c.get('db')

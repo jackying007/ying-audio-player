@@ -87,7 +87,7 @@ useNetworkSettings.subscribe((state, previous) => {
 function updateSync(id: string, patch: Partial<SyncState>) {
   useNetworkAudioStore.setState(state => ({ syncs: { ...state.syncs, [id]: { ...state.syncs[id], ...patch } } }))
 }
-async function putFile(
+async function uploadFile(
   id: string,
   kind: 'audio' | 'lyrics' | 'cover',
   bytes: Uint8Array,
@@ -95,7 +95,7 @@ async function putFile(
   signal: AbortSignal
 ) {
   if (!bytes.byteLength || bytes.byteLength > limit) throw new Error(`${kind} 文件为空或超过大小限制`)
-  await networkApi.putFile(id, kind, new Blob([new Uint8Array(bytes)]), signal)
+  await networkApi.uploadFile(id, kind, new Blob([new Uint8Array(bytes)]), signal)
 }
 export async function syncLocalFolder(id: string) {
   const entry = useLocalAudioStore.getState()[id]
@@ -151,11 +151,12 @@ export async function syncLocalFolder(id: string) {
           skipped++
         } else {
           if (!upload.id) throw new Error('服务端未返回上传 ID')
-          if (upload.requiredFiles.includes('audio')) await putFile(upload.id, 'audio', bytes, 50 * 1024 * 1024, signal)
+          if (upload.requiredFiles.includes('audio'))
+            await uploadFile(upload.id, 'audio', bytes, 50 * 1024 * 1024, signal)
           if (lyrics && upload.requiredFiles.includes('lyrics'))
-            await putFile(upload.id, 'lyrics', lyrics, 1024 * 1024, signal)
+            await uploadFile(upload.id, 'lyrics', lyrics, 1024 * 1024, signal)
           if (cover && upload.requiredFiles.includes('cover'))
-            await putFile(upload.id, 'cover', cover, 10 * 1024 * 1024, signal)
+            await uploadFile(upload.id, 'cover', cover, 10 * 1024 * 1024, signal)
           await networkApi.commitUpload(upload.id, signal)
           succeeded++
           invalidateAudioCache(remote.id, 'network')

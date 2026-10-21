@@ -721,7 +721,7 @@ test('upload APIs send JSON metadata and unmodified binary bodies', async () => 
     return json({ ok: true })
   }
   await networkApi.createFolder('中文 歌单')
-  await networkApi.putFile('upload', 'audio', new Blob([bytes]))
+  await networkApi.uploadFile('upload', 'audio', new Blob([bytes]))
 })
 
 test('sync stops on authentication or service-unavailable errors', async () => {
