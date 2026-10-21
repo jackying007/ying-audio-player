@@ -123,7 +123,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                 >
                   {importing ? <LoaderCircle className="animate-spin" /> : <Plus />}
                 </SidebarMenuAction>
-                {playAllError && <p className="px-2 py-1 text-sm text-destructive break-all">{playAllError}</p>}
+                {playAllError && <p className="px-2 py-1 text-xs text-destructive break-all">{playAllError}</p>}
                 <CollapsibleContent>
                   <SidebarMenuSub>
                     {localFolderList?.map(folder => (
@@ -158,7 +158,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                   {networkLoading ? <LoaderCircle className="animate-spin" /> : <RefreshCw />}
                 </SidebarMenuAction>
                 {networkPlayAllError && !networkPlayAllError.signal.aborted && (
-                  <p role="alert" className="px-2 py-1 text-sm text-destructive break-all">
+                  <p role="alert" className="px-2 py-1 text-xs text-destructive break-all">
                     {networkPlayAllError.message}
                   </p>
                 )}
@@ -179,7 +179,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                       <p className="text-sm">暂无同步的文件夹</p>
                     )}
                     {networkError && (
-                      <p role="alert" className="text-sm text-destructive break-all">
+                      <p role="alert" className="text-xs text-destructive break-all">
                         {networkError}
                       </p>
                     )}

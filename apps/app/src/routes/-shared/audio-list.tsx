@@ -1,7 +1,6 @@
-import { AudioLines, Ellipsis } from 'lucide-react'
+import { AudioLines } from 'lucide-react'
 import { cn } from 'cn'
 import { AudioCover } from './audio-cover'
-import { Button } from '@/components/ui/button'
 import { useAudioStore, PlayState, type AudioInfo } from '@/store/audio-store'
 
 function formatDuration(ms: number | null) {
@@ -23,10 +22,7 @@ export function AudioList({ audios, onPlay }: { audios: AudioInfo[]; onPlay: (au
           <div className="w-12 fc text-sm">#</div>
           <span>歌曲信息</span>
         </div>
-        <div className="flex items-center gap-2">
-          <div className="text-xs text-muted-foreground">时长大小</div>
-          <div className="text-sm">操作</div>
-        </div>
+        <div className="text-xs text-muted-foreground">时长大小</div>
       </div>
       {audios.map((audio, index) => {
         const active = current?.id === audio.id && (current?.source ?? 'local') === (audio.source ?? 'local')
@@ -64,14 +60,9 @@ export function AudioList({ audios, onPlay }: { audios: AudioInfo[]; onPlay: (au
                 )}
               </div>
             </div>
-            <div className="flex gap-2 shrink-0">
-              <div className="text-xs text-muted-foreground text-end">
-                <div>{formatDuration(audio.durationMs)}</div>
-                <div>{formatSize(audio.fileSize)}</div>
-              </div>
-              <Button variant="ghost" size="icon-sm">
-                <Ellipsis />
-              </Button>
+            <div className="shrink-0 text-xs text-muted-foreground text-end">
+              <div>{formatDuration(audio.durationMs)}</div>
+              <div>{formatSize(audio.fileSize)}</div>
             </div>
           </div>
         )
