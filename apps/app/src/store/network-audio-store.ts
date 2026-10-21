@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { readFile } from '@tauri-apps/plugin-fs'
 import { fileHash } from '@/lib/file-hash'
+import { localAudio } from '@/lib/local-audio'
 import { useNetworkSettings } from './network-settings'
 import { useAppStore } from './app-store'
 import { useLocalAudioStore } from './local-audio-store'
@@ -126,7 +127,9 @@ export async function syncLocalFolder(id: string) {
         // Read before opening an upload, so missing local files leave no pending upload.
         const bytes = await readFile(audio.link)
         const lyrics = audio.hasLyrics ? await readFile(audio.lrcLink) : undefined
-        const cover = audio.cover ? new Uint8Array(audio.cover.data) : undefined
+        const localCover = audio.hasCover ? await localAudio.getCover(audio.id) : null
+        if (audio.hasCover && !localCover) throw new Error('本地封面不存在，请刷新文件夹后重试')
+        const cover = localCover ? new Uint8Array(localCover.data) : undefined
         const [audioHash, lyricsHash, coverHash] = await Promise.all([
           fileHash(bytes),
           lyrics ? fileHash(lyrics) : null,
@@ -143,7 +146,7 @@ export async function syncLocalFolder(id: string) {
             durationMs: audio.durationMs,
             fileSize: audio.fileSize,
             hasLyrics: audio.hasLyrics,
-            coverMime: audio.cover?.mime ?? null,
+            coverMime: localCover?.mime ?? null,
             hashes: { audio: audioHash, lyrics: lyricsHash, cover: coverHash }
           },
           signal

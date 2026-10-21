@@ -8,7 +8,7 @@ export function toNetworkAudio(row: NetworkAudio): AudioInfo {
     ...row,
     source: 'network',
     scanError: null,
-    cover: null,
+    hasCover: !!row.coverMime,
     coverLink: row.coverMime ? `${base}/cover?v=${row.version}` : undefined,
     link: `${base}/audio?v=${row.version}`,
     lrcLink: `${base}/lyrics?v=${row.version}`,

@@ -6,6 +6,7 @@ fn main() {
                 "list_folders",
                 "import_folder",
                 "list_audios",
+                "get_cover",
                 "refresh_folder",
                 "remove_folder",
             ]),

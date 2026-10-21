@@ -32,7 +32,7 @@ export type AudioInfo = {
   artist: string | null
   durationMs: number | null
   fileSize: number | null
-  cover: { mime: string; data: number[] } | null
+  hasCover: boolean
   hasLyrics: boolean
   scanError: string | null
   link: string

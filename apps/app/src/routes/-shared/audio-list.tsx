@@ -49,7 +49,7 @@ export function AudioList({ audios, onPlay }: { audios: AudioInfo[]; onPlay: (au
                   <span className="text-muted-foreground">{index + 1}</span>
                 )}
               </div>
-              <AudioCover cover={audio.cover} coverLink={audio.coverLink} />
+              <AudioCover audio={audio} />
               <div className="min-w-0 ml-2">
                 <p className={cn('text-sm cursor-pointer hover:underline truncate', active && 'text-primary')}>
                   {audio.name}

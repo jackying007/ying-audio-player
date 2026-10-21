@@ -23,6 +23,7 @@ pub fn init<R: tauri::Runtime>() -> tauri::plugin::TauriPlugin<R> {
             list_folders,
             import_folder,
             list_audios,
+            get_cover,
             refresh_folder,
             remove_folder
         ])
@@ -83,7 +84,7 @@ pub struct AudioInfo {
     has_lyrics: bool,
     duration_ms: Option<i64>,
     file_size: Option<i64>,
-    cover: Option<Cover>,
+    has_cover: bool,
     scan_error: Option<String>,
     #[serde(rename = "type")]
     mime: &'static str,
@@ -200,13 +201,11 @@ fn query_audios(db: &Connection, folder_id: i64) -> Result<Vec<AudioInfo>> {
     get_folder(db, folder_id)?;
     db.prepare(
         "SELECT id, folder_id, path, name, title, artist, duration_ms,
-        file_size, lrc_path, has_lyrics, cover_mime, cover_data, scan_error FROM audios
+        file_size, lrc_path, has_lyrics, (cover_mime IS NOT NULL AND cover_data IS NOT NULL), scan_error FROM audios
         WHERE folder_id = ? ORDER BY name COLLATE NOCASE, path",
     )
     .map_err(db_error)?
     .query_map([folder_id], |row| {
-        let cover_mime: Option<String> = row.get(10)?;
-        let cover_data: Option<Vec<u8>> = row.get(11)?;
         Ok(AudioInfo {
             id: row.get(0)?,
             folder_id: row.get(1)?,
@@ -218,14 +217,29 @@ fn query_audios(db: &Connection, folder_id: i64) -> Result<Vec<AudioInfo>> {
             file_size: row.get(7)?,
             lrc_link: row.get(8)?,
             has_lyrics: row.get(9)?,
-            cover: cover_data.zip(cover_mime).map(|(data, mime)| Cover { mime, data }),
-            scan_error: row.get(12)?,
+            has_cover: row.get(10)?,
+            scan_error: row.get(11)?,
             mime: "audio/mpeg",
         })
     })
     .map_err(db_error)?
     .collect::<std::result::Result<_, _>>()
     .map_err(db_error)
+}
+
+fn query_cover(db: &Connection, audio_id: i64) -> Result<Option<Cover>> {
+    db.query_row(
+        "SELECT cover_mime, cover_data FROM audios WHERE id = ?",
+        [audio_id],
+        |row| {
+            let mime: Option<String> = row.get(0)?;
+            let data: Option<Vec<u8>> = row.get(1)?;
+            Ok(data.zip(mime).map(|(data, mime)| Cover { mime, data }))
+        },
+    )
+    .optional()
+    .map_err(db_error)?
+    .ok_or_else(|| "歌曲不存在".into())
 }
 
 fn nonempty(value: Option<std::borrow::Cow<'_, str>>) -> Option<String> {
@@ -470,6 +484,14 @@ pub async fn list_audios(folder_id: i64) -> Result<Vec<AudioInfo>> {
         .map_err(db_error)?
 }
 
+#[tauri::command]
+pub async fn get_cover(audio_id: i64) -> Result<Option<Cover>> {
+    let path = database_path()?;
+    tauri::async_runtime::spawn_blocking(move || query_cover(&open_database(&path)?, audio_id))
+        .await
+        .map_err(db_error)?
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -614,12 +636,19 @@ mod tests {
             full.file_size,
             Some(fs::metadata(music.join("完整.MP3")).unwrap().len() as i64)
         );
-        let cover = full.cover.as_ref().unwrap();
+        assert!(full.has_cover);
+        let serialized = serde_json::to_value(full).unwrap();
+        assert_eq!(serialized["hasCover"], true);
+        assert!(serialized.get("cover").is_none());
+        assert!(serialized.get("coverMime").is_none());
+        assert!(serialized.get("coverData").is_none());
+        let cover = query_cover(&db, full.id).unwrap().unwrap();
         assert_eq!(cover.data, vec![2; 16]);
         assert_eq!(cover.mime, "image/png");
         let bare = audios.iter().find(|t| t.name == "无标签").unwrap();
         assert_eq!(bare.name, "无标签");
-        assert!(bare.cover.is_none() && bare.artist.is_none() && bare.title.is_none());
+        assert!(!bare.has_cover && bare.artist.is_none() && bare.title.is_none());
+        assert!(query_cover(&db, bare.id).unwrap().is_none());
         assert!(bare.scan_error.is_none());
         let bad = audios.iter().find(|t| t.name == "损坏").unwrap();
         assert!(bad.scan_error.is_some() && bad.duration_ms.is_none());
@@ -636,6 +665,7 @@ mod tests {
         let state = LocalAudioState::default();
         let initial = index_folder(&mut db, &state, &music).unwrap();
         let first = query_audios(&db, initial.folder.id).unwrap();
+        let old_cover = query_cover(&db, first[0].id).unwrap().unwrap();
         let duplicate = index_folder(&mut db, &state, &music.join(".")).unwrap();
         assert_eq!(initial.folder.id, duplicate.folder.id);
         assert_eq!(query_folders(&db).unwrap().len(), 1);
@@ -650,6 +680,10 @@ mod tests {
         assert_eq!(after.len(), 2);
         assert_eq!(after[0].id, first[0].id);
         assert!(after[0].has_lyrics);
+        assert!(after[0].has_cover);
+        assert_eq!(query_cover(&db, after[0].id).unwrap().unwrap().data, old_cover.data);
+        assert!(query_cover(&db, first[1].id).is_err());
+        assert!(query_cover(&db, after[1].id).unwrap().is_none());
         assert_eq!(after[1].name, "c");
         assert_ne!(after[1].id, first[1].id);
         assert_eq!(
@@ -674,6 +708,7 @@ mod tests {
         let state = LocalAudioState::default();
         let initial = index_folder(&mut db, &state, &music).unwrap();
         let old = query_audios(&db, initial.folder.id).unwrap().remove(0);
+        let old_cover = query_cover(&db, old.id).unwrap().unwrap();
         let previous_time = initial.folder.scanned_at;
         db.execute_batch("CREATE TRIGGER fail_audio BEFORE INSERT ON audios BEGIN SELECT RAISE(ABORT, 'test failure'); END;").unwrap();
         assert!(reindex_folder(&mut db, &state, initial.folder.id).is_err());
@@ -682,8 +717,8 @@ mod tests {
             previous_time
         );
         assert_eq!(
-            query_audios(&db, initial.folder.id).unwrap()[0].cover.as_ref().unwrap().data,
-            old.cover.as_ref().unwrap().data
+            query_cover(&db, old.id).unwrap().unwrap().data,
+            old_cover.data
         );
         assert_eq!(
             db.query_row("SELECT count(*) FROM audios WHERE cover_data IS NOT NULL", [], |r| r.get::<_, i64>(0))
@@ -694,6 +729,33 @@ mod tests {
         assert!(reindex_folder(&mut db, &state, initial.folder.id).is_err());
         assert_eq!(query_audios(&db, initial.folder.id).unwrap()[0].id, old.id);
         assert_eq!(query_folders(&db).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn covers_follow_the_index_after_refresh_and_folder_removal() {
+        let fixture = Fixture::new();
+        let music = fixture.music();
+        let song = music.join("song.mp3");
+        mp3(&song, true);
+        let mut db = fixture.db();
+        let state = LocalAudioState::default();
+        let folder = index_folder(&mut db, &state, &music).unwrap().folder;
+        let audio_id = query_audios(&db, folder.id).unwrap()[0].id;
+
+        // A source-file change is only reflected after an explicit refresh.
+        mp3(&song, false);
+        assert!(query_audios(&db, folder.id).unwrap()[0].has_cover);
+        assert!(query_cover(&db, audio_id).unwrap().is_some());
+        reindex_folder(&mut db, &state, folder.id).unwrap();
+        assert!(!query_audios(&db, folder.id).unwrap()[0].has_cover);
+        assert!(query_cover(&db, audio_id).unwrap().is_none());
+
+        mp3(&song, true);
+        reindex_folder(&mut db, &state, folder.id).unwrap();
+        assert!(query_audios(&db, folder.id).unwrap()[0].has_cover);
+        assert_eq!(query_cover(&db, audio_id).unwrap().unwrap().data, vec![2; 16]);
+        remove_indexed_folder(&db, &state, folder.id).unwrap();
+        assert_eq!(query_cover(&db, audio_id).unwrap_err(), "歌曲不存在");
     }
 
     #[test]

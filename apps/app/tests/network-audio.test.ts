@@ -148,7 +148,7 @@ const local: AudioInfo = {
   lrcLink: 'C:/music/song.lrc',
   type: 'audio/mpeg',
   scanError: null,
-  cover: null
+  hasCover: false
 }
 const json = (value: unknown, status = 200) =>
   new Response(JSON.stringify(value), { status, headers: { 'Content-Type': 'application/json' } })
@@ -672,6 +672,30 @@ async function waitForPlayback(downloaded: () => boolean) {
   }
   throw new Error('Playback did not finish loading')
 }
+test('local lists and playback do not request or wait for covers', async () => {
+  prepareLocalRemoval()
+  const commands: string[] = []
+  localInvokeHook = async (command, args) => {
+    commands.push(command)
+    expect(args).toEqual({ folderId: 1 })
+    if (command.endsWith('list_audios')) return [{ ...local, hasCover: true }]
+    throw new Error(`Unexpected command: ${command}`)
+  }
+  await loadFolderAudios('1')
+  expect(useLocalAudioStore.getState()['1']).toMatchObject({ loading: false, audios: [{ hasCover: true }] })
+  await playAudio(useLocalAudioStore.getState()['1'].audios![0], { audioList: [local], playlistFolderId: 1 })
+  expect(useAudioStore.getState().playState).toBe(PlayState.Playing)
+  expect(commands).toEqual(['plugin:local-audio|list_audios'])
+})
+
+test('network audio exposes cover availability without embedding cover data', () => {
+  const audio = toNetworkAudio({ ...row, coverMime: 'image/png' })
+  expect(audio.hasCover).toBe(true)
+  expect(audio.coverLink).toBe('http://localhost:8787/api/audios/1/cover?v=v1')
+  expect(audio).not.toHaveProperty('cover')
+  expect(toNetworkAudio(row).hasCover).toBe(false)
+})
+
 test('sync uses current index, excludes local-only fields and continues after missing lyrics', async () => {
   useAppStore.setState({ localFolderList: [{ id: 1, name: 'music', link: 'C:/music', scannedAt: 0 }] })
   useLocalAudioStore.setState({
@@ -742,6 +766,89 @@ test('sync skips unchanged songs and sends only files requested by the server', 
     failures: []
   })
 })
+
+test('sync reads indexed covers separately, hashes them and uploads only when requested', async () => {
+  prepareLocalRemoval()
+  useLocalAudioStore.setState({
+    '1': { audios: [1, 2, 3].map(id => ({ ...local, id, hasCover: true })) }
+  })
+  const coverData = new Uint8Array([0, 128, 255])
+  const coverRequests: unknown[] = []
+  localInvokeHook = async (command, args) => {
+    expect(command).toBe('plugin:local-audio|get_cover')
+    coverRequests.push(args)
+    return { mime: 'image/png', data: [...coverData] }
+  }
+  let plans = 0
+  const writes: string[] = []
+  fetchHandler = async (url, init) => {
+    if (url.endsWith('/folders') && init.method === 'POST') return json({ id: 1, name: '音乐' })
+    if (url.endsWith('/uploads')) {
+      const data = JSON.parse(String(init.body))
+      expect(data.coverMime).toBe('image/png')
+      expect(data.hashes.cover).toBe(new Bun.CryptoHasher('sha256').update(coverData).digest('hex'))
+      expect(data).not.toHaveProperty('hasCover')
+      plans++
+      return plans === 1
+        ? json({ id: null, unchanged: true, requiredFiles: [] })
+        : json({ id: `cover-${plans}`, unchanged: false, requiredFiles: plans === 2 ? [] : ['cover'] })
+    }
+    if (init.method === 'PUT') {
+      writes.push(url)
+      expect(new Uint8Array(await new Response(init.body).arrayBuffer())).toEqual(coverData)
+      return json({ ok: true })
+    }
+    if (url.endsWith('/commit')) return json({ ok: true })
+    if (url.endsWith('/folders')) return json([{ id: 1, name: '音乐' }])
+    if (url.endsWith('/audios')) return json([row])
+    throw new Error(`Unexpected request: ${url}`)
+  }
+  await syncLocalFolder('1')
+  expect(coverRequests).toEqual([{ audioId: 1 }, { audioId: 2 }, { audioId: 3 }])
+  expect(writes).toEqual(['http://localhost:8787/api/uploads/cover-3/cover'])
+  expect(useNetworkAudioStore.getState().syncs['1']).toMatchObject({ succeeded: 2, skipped: 1, failures: [] })
+})
+
+for (const failure of ['missing', 'error'] as const) {
+  test(`sync fails a song when its indexed cover is ${failure}, then continues without clearing the remote cover`, async () => {
+    prepareLocalRemoval()
+    useLocalAudioStore.setState({
+      '1': {
+        audios: [
+          { ...local, hasCover: true },
+          { ...local, id: 2 }
+        ]
+      }
+    })
+    let coverRequests = 0
+    localInvokeHook = async (command, args) => {
+      expect(command).toBe('plugin:local-audio|get_cover')
+      expect(args).toEqual({ audioId: 1 })
+      coverRequests++
+      if (failure === 'error') throw new Error('封面读取失败')
+      return null
+    }
+    let uploads = 0
+    fetchHandler = async (url, init) => {
+      if (url.endsWith('/folders') && init.method === 'POST') return json({ id: 1, name: '音乐' })
+      if (url.endsWith('/uploads')) {
+        const data = JSON.parse(String(init.body))
+        expect(data.coverMime).toBeNull()
+        expect(data.hashes.cover).toBeNull()
+        uploads++
+        return json({ id: null, unchanged: true, requiredFiles: [] })
+      }
+      if (url.endsWith('/folders')) return json([{ id: 1, name: '音乐' }])
+      if (url.endsWith('/audios')) return json([row])
+      throw new Error(`Unexpected request: ${url}`)
+    }
+    await syncLocalFolder('1')
+    expect(coverRequests).toBe(1)
+    expect(uploads).toBe(1)
+    expect(useNetworkAudioStore.getState().syncs['1']).toMatchObject({ completed: 2, succeeded: 0, skipped: 1 })
+    expect(useNetworkAudioStore.getState().syncs['1'].failures).toHaveLength(1)
+  })
+}
 
 test('API requests retain their connection snapshot while settings change', async () => {
   const requests: { url: string; token: string | null; signal?: AbortSignal | null }[] = []

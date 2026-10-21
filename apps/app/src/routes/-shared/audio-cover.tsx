@@ -2,42 +2,43 @@ import { useEffect, useRef, useState } from 'react'
 import { Music2 } from 'lucide-react'
 import type { AudioInfo } from '@/store/audio-store'
 import { networkApi } from '@/api'
+import { localAudio } from '@/lib/local-audio'
 import { useNetworkSettings } from '@/store/network-settings'
 
-export function AudioCover({ cover, coverLink }: { cover: AudioInfo['cover']; coverLink?: string }) {
-  const imageRef = useRef<HTMLImageElement>(null)
+export function AudioCover({ audio }: { audio: AudioInfo }) {
   const containerRef = useRef<HTMLDivElement>(null)
-  const [failure, setFailure] = useState<{
-    cover: AudioInfo['cover']
-    coverLink?: string
+  const [result, setResult] = useState<{
+    audio: AudioInfo
     token: string
     serverUrl: string
+    url?: string
+    failed?: boolean
   }>()
-  const token = useNetworkSettings(state => state.token)
-  const serverUrl = useNetworkSettings(state => state.serverUrl)
-  const failed =
-    !!failure &&
-    failure.cover === cover &&
-    failure.coverLink === coverLink &&
-    failure.token === token &&
-    failure.serverUrl === serverUrl
-  const markFailed = () => setFailure({ cover, coverLink, token, serverUrl })
+  const token = useNetworkSettings(state => (audio.source === 'network' ? state.token : ''))
+  const serverUrl = useNetworkSettings(state => (audio.source === 'network' ? state.serverUrl : ''))
+  const current =
+    result?.audio === audio && result.token === token && result.serverUrl === serverUrl ? result : undefined
   useEffect(() => {
+    if (!audio.hasCover) return
     const controller = new AbortController()
     let disposed = false
     let objectUrl: string | undefined
     async function load() {
       try {
-        const blob = cover
-          ? new Blob([new Uint8Array(cover.data)], { type: cover.mime })
-          : coverLink
-            ? await networkApi.getCover(coverLink, controller.signal)
-            : undefined
-        if (!blob || disposed) return
+        let blob: Blob
+        if (audio.source === 'network') {
+          if (!audio.coverLink) throw new Error('歌曲封面地址不存在')
+          blob = await networkApi.getCover(audio.coverLink, controller.signal)
+        } else {
+          const cover = await localAudio.getCover(audio.id)
+          if (!cover) throw new Error('歌曲封面不存在')
+          blob = new Blob([new Uint8Array(cover.data)], { type: cover.mime })
+        }
+        if (disposed) return
         objectUrl = URL.createObjectURL(blob)
-        if (imageRef.current) imageRef.current.src = objectUrl
+        setResult({ audio, token, serverUrl, url: objectUrl })
       } catch {
-        if (!disposed) setFailure({ cover, coverLink, token, serverUrl })
+        if (!disposed) setResult({ audio, token, serverUrl, failed: true })
       }
     }
     const observer = new IntersectionObserver(
@@ -56,16 +57,22 @@ export function AudioCover({ cover, coverLink }: { cover: AudioInfo['cover']; co
       observer.disconnect()
       if (objectUrl) URL.revokeObjectURL(objectUrl)
     }
-  }, [cover, coverLink, token, serverUrl])
+  }, [audio, token, serverUrl])
 
   return (
     <div
       ref={containerRef}
-      title={failed ? '封面加载失败' : undefined}
+      title={current?.failed ? '封面加载失败' : undefined}
       className="size-11 shrink-0 overflow-hidden rounded-md bg-muted flex items-center justify-center border"
     >
-      {(cover || coverLink) && !failed ? (
-        <img ref={imageRef} alt="歌曲封面" className="size-full object-cover" onError={markFailed} />
+      {current?.url && !current.failed ? (
+        <img
+          key={current.url}
+          src={current.url}
+          alt="歌曲封面"
+          className="size-full object-cover"
+          onError={() => setResult(previous => (previous === current ? { ...previous, failed: true } : previous))}
+        />
       ) : (
         <Music2 className="size-5 text-muted-foreground" />
       )}
