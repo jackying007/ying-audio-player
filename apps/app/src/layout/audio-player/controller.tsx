@@ -31,6 +31,7 @@ import {
   cyclePlayMode
 } from '@/store/audio-store'
 import { useAppStore } from '@/store/app-store'
+import { useIsMobile } from '@/hooks/use-mobile'
 
 const playModeDetails = {
   sequence: { icon: ListMusic, label: '列表顺序播放' },
@@ -39,6 +40,7 @@ const playModeDetails = {
 }
 
 export function Controller() {
+  const isMobile = useIsMobile()
   const currentAudioInfo = useAudioStore(state => state.currentAudioInfo)
   const playState = useAudioStore(state => state.playState)
   const duration = useAudioStore(state => state.duration)
@@ -99,7 +101,71 @@ export function Controller() {
       />
 
       <div className="p-4 h-full flex items-center justify-between">
-        <div className="flex-1 flex items-center gap-x-2">
+        <div className="min-w-0 flex-1 truncate">
+          <div>{currentAudioInfo?.name}</div>
+          <div className="text-sm tabular-nums">
+            {dayjs.duration(currentTimeSliderValue[0], 'seconds').format('mm:ss')}/
+            {duration && dayjs.duration(duration, 'seconds').format('mm:ss')}
+          </div>
+          {error && (
+            <p role="alert" title={error} className="truncate text-xs text-destructive">
+              {error}
+            </p>
+          )}
+          {warning && (
+            <p role="status" className="truncate text-xs text-muted-foreground">
+              {warning}
+            </p>
+          )}
+        </div>
+
+        <div className="flex-1 flex justify-center items-center">
+          <Button variant="ghost" size="default" onClick={playPrevAudio}>
+            <SkipBack className="w-6 h-6" />
+          </Button>
+          <Button variant="ghost" size="default" onClick={togglePauseOrPlay}>
+            {playState === PlayState.Playing ? <Pause className="w-6 h-6" /> : <Play className="w-6 h-6" />}
+          </Button>
+          <Button variant="ghost" size="default" onClick={playNextAudio}>
+            <SkipForward className="w-6 h-6" />
+          </Button>
+        </div>
+
+        <div className="flex-1 flex justify-end items-center">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="ghost" size="icon" onClick={cyclePlayMode}>
+                <PlayModeIcon />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="top">{playModeLabel}</TooltipContent>
+          </Tooltip>
+          {!isMobile && (
+            <Popover open={volumePopoverOpen} onOpenChange={setVolumePopoverOpen}>
+              <PopoverTrigger asChild>
+                <Button variant="ghost" size="icon" onMouseEnter={openVolumePopover} onMouseLeave={closeVolumePopover}>
+                  <VolumeIcon />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent
+                side="top"
+                className="w-(--radix-popover-trigger-width) items-center px-0 py-3"
+                onOpenAutoFocus={event => event.preventDefault()}
+                onCloseAutoFocus={event => event.preventDefault()}
+                onMouseEnter={openVolumePopover}
+                onMouseLeave={closeVolumePopover}
+              >
+                <Slider
+                  orientation="vertical"
+                  className="h-24 data-vertical:min-h-24"
+                  value={volumeSliderValue}
+                  max={1}
+                  step={0.01}
+                  onValueChange={val => setVolume(val[0])}
+                />
+              </PopoverContent>
+            </Popover>
+          )}
           <Button
             variant="ghost"
             size="icon"
@@ -117,75 +183,6 @@ export function Controller() {
           >
             <ChevronUp className={cn('w-6! h-6! transition-all', showMode === ShowMode.Fullscreen && 'rotate-180')} />
           </Button>
-          <div className="min-w-0">
-            <div className="text-lg truncate">{currentAudioInfo?.name}</div>
-            {error && (
-              <p role="alert" title={error} className="max-w-72 truncate text-xs text-destructive">
-                {error}
-              </p>
-            )}
-            {warning && (
-              <p role="status" className="max-w-72 truncate text-xs text-muted-foreground">
-                {warning}
-              </p>
-            )}
-          </div>
-        </div>
-
-        <div className="flex-1 flex justify-center items-center gap-x-2">
-          <Button variant="ghost" size="default" onClick={playPrevAudio}>
-            <SkipBack className="w-6 h-6" />
-          </Button>
-          <Button variant="ghost" size="default" onClick={togglePauseOrPlay}>
-            {playState === PlayState.Playing ? <Pause className="w-6 h-6" /> : <Play className="w-6 h-6" />}
-          </Button>
-          <Button variant="ghost" size="default" onClick={playNextAudio}>
-            <SkipForward className="w-6 h-6" />
-          </Button>
-        </div>
-
-        <div className="flex-1 flex justify-end items-center gap-x-2">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={cyclePlayMode}
-                aria-label={`当前模式：${playModeLabel}，点击切换播放模式`}
-              >
-                <PlayModeIcon />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="top">{playModeLabel}</TooltipContent>
-          </Tooltip>
-          <Popover open={volumePopoverOpen} onOpenChange={setVolumePopoverOpen}>
-            <PopoverTrigger asChild>
-              <Button variant="ghost" size="icon" onMouseEnter={openVolumePopover} onMouseLeave={closeVolumePopover}>
-                <VolumeIcon />
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent
-              side="top"
-              className="w-(--radix-popover-trigger-width) items-center px-0 py-3"
-              onOpenAutoFocus={event => event.preventDefault()}
-              onCloseAutoFocus={event => event.preventDefault()}
-              onMouseEnter={openVolumePopover}
-              onMouseLeave={closeVolumePopover}
-            >
-              <Slider
-                orientation="vertical"
-                className="h-24 data-vertical:min-h-24"
-                value={volumeSliderValue}
-                max={1}
-                step={0.01}
-                onValueChange={val => setVolume(val[0])}
-              />
-            </PopoverContent>
-          </Popover>
-          <div className="text-sm tabular-nums">
-            {dayjs.duration(currentTimeSliderValue[0], 'seconds').format('mm:ss')} /{' '}
-            {duration && dayjs.duration(duration, 'seconds').format('mm:ss')}
-          </div>
         </div>
       </div>
     </div>
