@@ -84,6 +84,8 @@ Tauri 自动启动 Vite 并打开窗口。Vite 固定使用 `http://localhost:14
 
 ## 验证与维护
 
+- 每次执行完计划模式的计划后，仅进行代码测试，不启动 App 的 E2E 测试，不自动提交代码。
+
 | 目的 | 工作目录 | 命令 |
 | --- | --- | --- |
 | workspace 类型检查 / lint / 构建 | 根目录 | `bun run check` / `bun run lint` / `bun run build` |
