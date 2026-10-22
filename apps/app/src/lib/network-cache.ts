@@ -1,6 +1,7 @@
 import { invoke } from '@tauri-apps/api/core'
 import { readFile, readTextFile } from '@tauri-apps/plugin-fs'
 import { fileHash } from './file-hash'
+import { isAndroid } from './platform'
 import { useNetworkSettings } from '@/store/network-settings'
 import type { AudioInfo } from '@/store/audio-store'
 
@@ -55,15 +56,38 @@ export async function readNetworkCache(key: NetworkCacheKey) {
 
 let pendingWrite: Promise<void> = Promise.resolve()
 
+const CACHE_CHUNK_SIZE = 64 * 1024
+
+async function sendCachePayload(payload: ArrayBuffer) {
+  if (!isAndroid) {
+    await invoke<void>('plugin:network-cache|save_cache', payload)
+    return
+  }
+  // Android IPC uses JSON postMessage, even when invoke receives an ArrayBuffer.
+  // Bound each array conversion and yield to the WebView between native callbacks.
+  const rid = await invoke<number>('plugin:network-cache|begin_cache_write', { size: payload.byteLength })
+  let finished = false
+  try {
+    for (let offset = 0; offset < payload.byteLength; offset += CACHE_CHUNK_SIZE) {
+      const data = new Uint8Array(payload, offset, Math.min(CACHE_CHUNK_SIZE, payload.byteLength - offset))
+      await invoke<void>('plugin:network-cache|write_cache_chunk', { rid, offset, data })
+    }
+    await invoke<void>('plugin:network-cache|finish_cache_write', { rid })
+    finished = true
+  } finally {
+    if (!finished) await invoke<void>('plugin:network-cache|abort_cache_write', { rid }).catch(() => {})
+  }
+}
+
 export function saveNetworkCache(key: NetworkCacheKey, audio: Blob, lrc?: string) {
   // Keep replacements ordered even when an older song is still being saved.
   const write = pendingWrite.then(async () => {
     const metadata = new TextEncoder().encode(JSON.stringify({ key, lyrics: key.hasLyrics ? lrc : null }))
     const size = new ArrayBuffer(4)
     new DataView(size).setUint32(0, metadata.byteLength, true)
-    // Use Tauri's raw binary payload instead of expanding audio into a JSON number array.
+    // Desktop uses raw binary; Android sends bounded JSON chunks over its native bridge.
     const payload = await new Blob([size, metadata, audio]).arrayBuffer()
-    await invoke<void>('plugin:network-cache|save_cache', payload)
+    await sendCachePayload(payload)
   })
   pendingWrite = write.catch(() => {})
   return write

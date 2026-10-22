@@ -4,11 +4,57 @@ use std::{
     path::{Path, PathBuf},
     sync::Mutex,
 };
+use tauri::Manager;
 
 type Result<T> = std::result::Result<T, String>;
 
 // Serialize cache reads and publication.
 static CACHE_LOCK: Mutex<()> = Mutex::new(());
+const MAX_CACHE_PAYLOAD_SIZE: usize = 52 * 1024 * 1024 + 4;
+const MAX_CACHE_CHUNK_SIZE: usize = 64 * 1024;
+
+struct PendingCacheWrite {
+    size: usize,
+    bytes: Vec<u8>,
+}
+
+impl PendingCacheWrite {
+    fn new(size: usize) -> Result<Self> {
+        if !(4..=MAX_CACHE_PAYLOAD_SIZE).contains(&size) {
+            return Err("缓存请求超过大小限制或不完整".into());
+        }
+        Ok(Self {
+            size,
+            bytes: Vec::with_capacity(size),
+        })
+    }
+
+    fn append(&mut self, offset: usize, data: &[u8]) -> Result<()> {
+        if data.is_empty()
+            || data.len() > MAX_CACHE_CHUNK_SIZE
+            || offset != self.bytes.len()
+            || data.len() > self.size - self.bytes.len()
+        {
+            return Err("缓存数据块超限、顺序错误或超出声明大小".into());
+        }
+        self.bytes.extend_from_slice(data);
+        Ok(())
+    }
+
+    fn take_payload(&mut self) -> Result<Vec<u8>> {
+        if self.bytes.len() != self.size {
+            return Err("缓存请求不完整".into());
+        }
+        Ok(std::mem::take(&mut self.bytes))
+    }
+}
+
+struct CacheWrite {
+    pending: Mutex<PendingCacheWrite>,
+}
+
+// Tauri releases the buffer on completion, cancellation or app shutdown.
+impl tauri::Resource for CacheWrite {}
 
 #[derive(Clone, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -37,12 +83,16 @@ pub struct CachedFiles {
     lyrics_path: Option<String>,
 }
 
-pub fn init<R: tauri::Runtime>() -> tauri::plugin::TauriPlugin<R> {
+pub fn init() -> tauri::plugin::TauriPlugin<tauri::Wry> {
     tauri::plugin::Builder::new("network-cache")
         .invoke_handler(tauri::generate_handler![
             #![plugin(network_cache)]
             read_cache,
-            save_cache
+            save_cache,
+            begin_cache_write,
+            write_cache_chunk,
+            finish_cache_write,
+            abort_cache_write
         ])
         .build()
 }
@@ -94,10 +144,8 @@ fn validate_key(key: &CacheKey) -> Result<()> {
     Ok(())
 }
 
-fn cache_root() -> Result<PathBuf> {
-    let executable = std::env::current_exe().map_err(|e| e.to_string())?;
-    let parent = executable.parent().ok_or("无法获取应用目录")?;
-    Ok(parent.join("network"))
+fn cache_root(app: &tauri::AppHandle) -> Result<PathBuf> {
+    Ok(crate::storage::root(app)?.join("network"))
 }
 
 // Reject links/junctions so cache operations stay inside the executable's network directory.
@@ -265,10 +313,10 @@ fn read_files(root: &Path, key: &CacheKey) -> Result<Option<CachedFiles>> {
 }
 
 #[tauri::command]
-async fn read_cache(key: CacheKey) -> Result<Option<CachedFiles>> {
+async fn read_cache(app: tauri::AppHandle, key: CacheKey) -> Result<Option<CachedFiles>> {
     tauri::async_runtime::spawn_blocking(move || {
         let _guard = CACHE_LOCK.lock().map_err(|e| e.to_string())?;
-        read_files(&cache_root()?, &key)
+        read_files(&cache_root(&app)?, &key)
     })
     .await
     .map_err(|e| e.to_string())?
@@ -288,7 +336,7 @@ fn save_payload(root: &Path, mut payload: Vec<u8>) -> Result<()> {
         .try_into()
         .map_err(|_| "无效缓存请求")?;
     let metadata_size = u32::from_le_bytes(prefix) as usize;
-    if metadata_size > 2 * 1024 * 1024 || payload.len() > 52 * 1024 * 1024 + 4 {
+    if metadata_size > 2 * 1024 * 1024 || payload.len() > MAX_CACHE_PAYLOAD_SIZE {
         return Err("缓存请求超过大小限制".into());
     }
     let offset = 4 + metadata_size;
@@ -300,17 +348,77 @@ fn save_payload(root: &Path, mut payload: Vec<u8>) -> Result<()> {
 }
 
 #[tauri::command]
-async fn save_cache(request: tauri::ipc::Request<'_>) -> Result<()> {
+async fn save_cache(app: tauri::AppHandle, request: tauri::ipc::Request<'_>) -> Result<()> {
     let payload = match request.body() {
-        tauri::ipc::InvokeBody::Raw(bytes) if bytes.len() <= 52 * 1024 * 1024 + 4 => bytes.clone(),
+        tauri::ipc::InvokeBody::Raw(bytes) if bytes.len() <= MAX_CACHE_PAYLOAD_SIZE => {
+            bytes.clone()
+        }
         _ => return Err("缓存请求必须为大小限制内的二进制数据".into()),
     };
     tauri::async_runtime::spawn_blocking(move || {
         let _guard = CACHE_LOCK.lock().map_err(|e| e.to_string())?;
-        save_payload(&cache_root()?, payload)
+        save_payload(&cache_root(&app)?, payload)
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+fn begin_cache_write(app: tauri::AppHandle, size: usize) -> Result<tauri::ResourceId> {
+    let pending = PendingCacheWrite::new(size)?;
+    Ok(app.resources_table().add(CacheWrite {
+        pending: Mutex::new(pending),
+    }))
+}
+
+#[tauri::command]
+async fn write_cache_chunk(
+    app: tauri::AppHandle,
+    rid: tauri::ResourceId,
+    offset: usize,
+    data: Vec<u8>,
+) -> Result<()> {
+    let write = app
+        .resources_table()
+        .get::<CacheWrite>(rid)
+        .map_err(|e| e.to_string())?;
+    tauri::async_runtime::spawn_blocking(move || {
+        write
+            .pending
+            .lock()
+            .map_err(|e| e.to_string())?
+            .append(offset, &data)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn finish_cache_write(app: tauri::AppHandle, rid: tauri::ResourceId) -> Result<()> {
+    let write = app
+        .resources_table()
+        .take::<CacheWrite>(rid)
+        .map_err(|e| e.to_string())?;
+    let root = cache_root(&app)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let payload = write
+            .pending
+            .lock()
+            .map_err(|e| e.to_string())?
+            .take_payload()?;
+        let _guard = CACHE_LOCK.lock().map_err(|e| e.to_string())?;
+        save_payload(&root, payload)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+fn abort_cache_write(app: tauri::AppHandle, rid: tauri::ResourceId) -> Result<()> {
+    app.resources_table()
+        .take::<CacheWrite>(rid)
+        .map(|_| ())
+        .map_err(|e| e.to_string())
 }
 
 #[cfg(test)]
@@ -382,6 +490,82 @@ mod tests {
             version: "version-1".into(),
             has_lyrics: true,
         }
+    }
+
+    #[test]
+    fn android_json_chunks_publish_exact_audio_and_unicode_lyrics_only_when_complete() {
+        let fixture = Fixture::new();
+        let key = key();
+        fixture.save(&key);
+        let original = read_files(&fixture.root(), &key).unwrap().unwrap();
+        let metadata =
+            serde_json::to_vec(&serde_json::json!({ "key": key, "lyrics": "[00:01]中文歌词" }))
+                .unwrap();
+        let audio: Vec<u8> = (0..MAX_CACHE_CHUNK_SIZE + 37)
+            .map(|index| index as u8)
+            .collect();
+        let mut payload = (metadata.len() as u32).to_le_bytes().to_vec();
+        payload.extend_from_slice(&metadata);
+        payload.extend_from_slice(&audio);
+        let mut pending = PendingCacheWrite::new(payload.len()).unwrap();
+        for chunk in payload.chunks(MAX_CACHE_CHUNK_SIZE) {
+            // Android serializes typed arrays as JSON arrays rather than a raw InvokeBody.
+            let data: Vec<u8> = serde_json::from_value(serde_json::json!(chunk)).unwrap();
+            pending.append(pending.bytes.len(), &data).unwrap();
+            assert_eq!(fs::read(&original.audio_path).unwrap(), b"music");
+        }
+        save_payload(&fixture.root(), pending.take_payload().unwrap()).unwrap();
+        let files = read_files(&fixture.root(), &key).unwrap().unwrap();
+        assert_eq!(fs::read(files.audio_path).unwrap(), audio);
+        assert_eq!(
+            fs::read_to_string(files.lyrics_path.unwrap()).unwrap(),
+            "[00:01]中文歌词"
+        );
+    }
+
+    #[test]
+    fn chunks_reject_invalid_sizes_offsets_and_incomplete_transfers_without_changing_old_cache() {
+        let fixture = Fixture::new();
+        let key = key();
+        fixture.save(&key);
+        for size in [0, 3, MAX_CACHE_PAYLOAD_SIZE + 1] {
+            assert!(PendingCacheWrite::new(size).is_err());
+        }
+        let mut pending = PendingCacheWrite::new(8).unwrap();
+        for (offset, data) in [
+            (0, vec![]),
+            (1, vec![1]),
+            (0, vec![0; MAX_CACHE_CHUNK_SIZE + 1]),
+            (0, vec![0; 9]),
+        ] {
+            assert!(pending.append(offset, &data).is_err());
+            assert!(pending.bytes.is_empty());
+        }
+        pending.append(0, &[0, 128, 255, 42]).unwrap();
+        assert!(pending.append(0, &[1]).is_err());
+        assert!(pending.take_payload().is_err());
+        let old = read_files(&fixture.root(), &key).unwrap().unwrap();
+        assert_eq!(fs::read(old.audio_path).unwrap(), b"music");
+    }
+
+    #[test]
+    fn cancelled_chunk_resources_release_the_buffer_and_cannot_be_used_again() {
+        let mut resources = tauri::ResourceTable::default();
+        let rid = resources.add(CacheWrite {
+            pending: Mutex::new(PendingCacheWrite::new(8).unwrap()),
+        });
+        let write = resources.get::<CacheWrite>(rid).unwrap();
+        write
+            .pending
+            .lock()
+            .unwrap()
+            .append(0, &[0, 128, 255, 42])
+            .unwrap();
+        let weak = std::sync::Arc::downgrade(&write);
+        drop(write);
+        drop(resources.take::<CacheWrite>(rid).unwrap());
+        assert!(weak.upgrade().is_none());
+        assert!(resources.get::<CacheWrite>(rid).is_err());
     }
 
     #[test]

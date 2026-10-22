@@ -2,7 +2,7 @@
 
 ## 项目与入口
 
-Bun workspace + Turborepo，包含 Tauri 桌面播放器和 Cloudflare 音乐服务。本地播放独立可用；网络功能提供文件夹同步、增量上传和播放。功能与启动说明统一维护在本文件。
+Bun workspace + Turborepo，包含 Tauri 桌面/Android 播放器和 Cloudflare 音乐服务。本地播放独立可用；网络功能提供文件夹同步、增量上传和播放。功能与启动说明统一维护在本文件。
 
 - `apps/app`：Tauri 2、React 19、TypeScript、Vite、TanStack Router、Zustand、Tailwind CSS 4、shadcn/Radix。
 - 本地索引：`apps/app/src-tauri/src/local_audio.rs`；IPC：`src/lib/local-audio.ts`；文件夹与扫描：`src/store/app-store.ts`、`local-audio-store.ts`。
@@ -53,6 +53,19 @@ bun run tauri dev
 Tauri 自动启动 Vite 并打开窗口。Vite 固定使用 `http://localhost:1420`，端口占用会失败；不要再同时启动 app 的 `dev`。`TAURI_DEV_HOST` 可改变开发地址，HMR 使用 1421。根目录 `bun run dev` 只启动 Vite + Wrangler，不打开桌面窗口；仅查看前端可运行 `bun run --filter @ying/app dev`，文件选择、读取及完整播放验证使用 Tauri 窗口。
 
 **使用流程**：在「App 设置」填写服务端根地址（不带 `/api`）和与 `API_TOKEN` 相同的密钥 → 导入本地 MP3 文件夹 → 点击列表「同步」 → 展开左侧「网络」，选择文件夹并双击歌曲。网络列表与本地共用布局，展示名称、封面、歌手、时长和大小。
+
+### Android
+
+- 安装 Android Studio 的 JDK、SDK Platform 37、Platform Tools 和 NDK，设置 `JAVA_HOME`、`ANDROID_HOME`、`NDK_HOME`，并安装 `aarch64-linux-android` Rust target。Windows 的 Tauri 打包需要启用系统开发者模式以创建符号链接。
+- 工程已在 `apps/app/src-tauri/gen/android`，首次重新生成时在 `apps/app` 执行 `bun run android:init`；已有工程不要重复初始化，以免覆盖原生定制。`bun run android:dev` 启动开发，`bun run android:build` 构建 ARM64 APK；本地调试包使用 `bun run tauri android build --target aarch64 --apk --debug --ci`。最低 Android 7.0/API 24，系统 WebView 需保持更新。
+- 交付安装包使用 Release（`android:build` 默认），Debug 包仅供开发调试。交付前检查 APK 实际大小与内容，避免交付含大量调试符号或增量打包残留的产物。
+- 真机开发通过 USB 调试连接，执行 `adb reverse tcp:1420 tcp:1420`、`adb reverse tcp:1421 tcp:1421`；访问本机 Worker 时再执行 `adb reverse tcp:8787 tcp:8787`，App 内填写 `http://localhost:8787`。`android:dev` 固定使用 `127.0.0.1`，保持开发页面处于安全上下文，并匹配服务端 CORS；Vite 由 Tauri 启动，不另起一个前端开发服务。发布版继续支持用户填写 HTTP/HTTPS 根地址。
+- Android 原生目录访问位于 `src-tauri/plugins/android-files`。通过系统目录选择器持久授权，只扫描所选目录直接子文件；Android 系统限制选择存储根目录、Download 根目录等位置时，应选择其下的音乐文件夹。取消选择不改索引；撤销授权后重新导入原文件夹恢复访问，授权失效的刷新保留旧索引。
+- URI 是不透明标识；文件夹名和原始 `filename` 来自文档提供者。播放和同步通过 `localAudio.readAudio/readLyrics` 按歌曲 ID 读取，禁止解析 URI 拼接文件名。原生层逐文件临时复制供 Rust 解析或二进制读取，读取结束清理，不永久复制导入目录。
+- Android 包名统一为 `ying.audio.player`。SQLite、`network` 与 `.network-cache` 直接位于 `Android/data/ying.audio.player/`，不再使用内部私有数据目录；原生层通过 `getExternalFilesDir(null)` 取得系统创建目录的父目录，不硬编码存储盘路径，不申请全盘权限。外部存储不可写时报错，不回退内部目录；卸载仍清除这些数据。更换包名视为新应用，旧包私有数据、设置及目录授权不自动迁移，需重新配置和导入。桌面继续使用可执行文件同目录。音乐列表在 Android 单击播放，桌面双击；布局沿用响应式界面。
+- Android 的 Tauri IPC 请求走 JSON，不能把整首音频作为 raw `ArrayBuffer` 发给只接受二进制请求的命令。网络缓存使用最多 64 KiB 的有序数据块，收齐并校验总长度后复用现有保存流程；失败释放传输资源，完成标记发布前不视为可用缓存。桌面继续使用 raw 二进制 IPC。
+- 播放继续使用 WebView `Audio`，本次不提供通知栏/锁屏控制或可靠后台连续播放。返回键先关闭弹层与侧栏，再收起全屏歌词，再返回历史页面，无历史时退出 App。
+- 原生代码测试：完成一次 Tauri Android 构建生成依赖配置后，在 `src-tauri/gen/android` 执行 `./gradlew.bat :tauri-plugin-android-files:testDebugUnitTest`；这些 JVM 单元测试不启动 App 或模拟器。改动 Kotlin、Rust、IPC 后同步检查两端类型和 capabilities。
 
 ## 音乐与同步约定
 

@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { readFile, readTextFile } from '@tauri-apps/plugin-fs'
+import { localAudio } from '@/lib/local-audio'
 import { useAppStore } from './app-store'
 import { PlaybackQueue, playModes, type PlaybackAction } from '@/lib/playback-queue'
 import { networkApi } from '@/api'
@@ -118,7 +118,8 @@ function saveInBackground(link: string, cached: CachedData) {
       cached.saved = true
       cached.warning = undefined
     })
-    .catch(() => {
+    .catch(error => {
+      console.warn('网络歌曲缓存保存失败', error)
       cached.warning = '本地缓存保存失败，本次仍可播放'
     })
     .finally(() => {
@@ -209,9 +210,9 @@ export const pauseAudio = () => {
   if (!audio.paused) audio.pause()
 }
 
-async function readLrc(lrcLink: string) {
+async function readLrc(audioId: number) {
   try {
-    return await readTextFile(lrcLink)
+    return new TextDecoder().decode(await localAudio.readLyrics(audioId))
   } catch {
     return
   }
@@ -282,14 +283,14 @@ const startAudio = async (audioInfo: AudioInfo, playlist?: Pick<AudioStore, 'aud
         : await Promise.all([
             remote
               ? networkApi.getAudio(audioInfo.link, controller.signal).then(bytes => new Uint8Array(bytes))
-              : readFile(audioInfo.link),
+              : localAudio.readAudio(audioInfo.id),
             audioInfo.hasLyrics
               ? remote
                 ? networkApi.getLyrics(audioInfo.lrcLink, controller.signal).catch(() => {
                     warning = '歌词加载失败，请重试播放'
                     return undefined
                   })
-                : readLrc(audioInfo.lrcLink)
+                : readLrc(audioInfo.id)
               : Promise.resolve(undefined)
           ])
       if (request !== playRequest) return

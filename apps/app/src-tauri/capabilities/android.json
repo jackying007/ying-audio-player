@@ -1,0 +1,15 @@
+{
+  "identifier": "android",
+  "description": "Android system back navigation",
+  "platforms": ["android"],
+  "windows": ["main"],
+  "permissions": [
+    "core:app:allow-register-listener",
+    "core:app:allow-remove-listener",
+    "core:app:allow-exit",
+    "network-cache:allow-begin-cache-write",
+    "network-cache:allow-write-cache-chunk",
+    "network-cache:allow-finish-cache-write",
+    "network-cache:allow-abort-cache-write"
+  ]
+}

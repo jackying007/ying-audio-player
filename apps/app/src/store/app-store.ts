@@ -1,6 +1,5 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import { open } from '@tauri-apps/plugin-dialog'
 import { localAudio, type LocalAudioFolder } from '@/lib/local-audio'
 import { isPlayMode, type PlayMode } from '@/lib/playback-queue'
 
@@ -65,7 +64,7 @@ export async function importLocalFolder(retry = false) {
   if (useAppStore.getState().importing || useAppStore.getState().removingFolderIds.length) return
   useAppStore.setState({ importing: true, error: undefined, warnings: [] })
   try {
-    const path = retry && lastImportPath ? lastImportPath : await open({ multiple: false, directory: true })
+    const path = retry && lastImportPath ? lastImportPath : await localAudio.pickFolder()
     if (!path) return
     lastImportPath = path
     const result = await localAudio.importFolder(path)

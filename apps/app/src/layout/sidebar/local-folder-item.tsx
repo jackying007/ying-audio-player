@@ -57,7 +57,7 @@ export function LocalFolderItem({
         type="button"
         variant="ghostDestructive"
         size="icon-sm"
-        className="absolute right-1 top-0.5 size-7 text-muted-foreground opacity-0 group-hover/local-folder:opacity-100 group-focus-within/local-folder:opacity-100 disabled:opacity-0 group-hover/local-folder:disabled:opacity-50 group-focus-within/local-folder:disabled:opacity-50"
+        className="absolute right-1 top-0.5 size-7 text-muted-foreground [@media(hover:none)]:opacity-100 [@media(hover:none)]:disabled:opacity-50 opacity-0 group-hover/local-folder:opacity-100 group-focus-within/local-folder:opacity-100 disabled:opacity-0 group-hover/local-folder:disabled:opacity-50 group-focus-within/local-folder:disabled:opacity-50"
         title="移除导入记录，保留原文件"
         disabled={busy || refreshing || syncing || confirming}
         onClick={() => void handleRemove()}

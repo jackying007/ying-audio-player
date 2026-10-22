@@ -1,5 +1,4 @@
 import { create } from 'zustand'
-import { readFile } from '@tauri-apps/plugin-fs'
 import { fileHash } from '@/lib/file-hash'
 import { localAudio } from '@/lib/local-audio'
 import { useNetworkSettings } from './network-settings'
@@ -213,11 +212,12 @@ export async function syncLocalFolder(id: string) {
     const remote = await networkApi.createFolder(folder.name, signal)
     for (const [index, audio] of audios.entries()) {
       if (signal.aborted) throw new Error('连接配置已变更，同步已停止')
-      const filename = audio.link.split(/[\\/]/).pop()!
+      const filename = audio.filename ?? audio.name
       try {
         // Read before opening an upload, so missing local files leave no pending upload.
-        const bytes = await readFile(audio.link)
-        const lyrics = audio.hasLyrics ? await readFile(audio.lrcLink) : undefined
+        if (!audio.filename) throw new Error('歌曲缺少原始文件名，请刷新文件夹后重试')
+        const bytes = await localAudio.readAudio(audio.id)
+        const lyrics = audio.hasLyrics ? await localAudio.readLyrics(audio.id) : undefined
         const localCover = audio.hasCover ? await localAudio.getCover(audio.id) : null
         if (audio.hasCover && !localCover) throw new Error('本地封面不存在，请刷新文件夹后重试')
         const cover = localCover ? new Uint8Array(localCover.data) : undefined

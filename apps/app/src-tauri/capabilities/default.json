@@ -2,16 +2,9 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Capability for the main window",
-  "windows": [
-    "main"
-  ],
+  "windows": ["main"],
   "permissions": [
     "core:default",
-    "core:window:default",
-    "core:window:allow-minimize",
-    "core:window:allow-toggle-maximize",
-    "core:window:allow-close",
-    "core:window:allow-start-dragging",
     "opener:default",
     "dialog:default",
     "local-audio:allow-list-folders",
@@ -31,6 +24,9 @@
       ]
     },
     "fs:allow-read-file",
-    "fs:allow-read-text-file"
+    "fs:allow-read-text-file",
+    "local-audio:allow-pick-folder",
+    "local-audio:allow-read-audio",
+    "local-audio:allow-read-lyrics"
   ]
 }

@@ -1,7 +1,6 @@
 use lofty::{file::AudioFile, file::TaggedFileExt, picture::PictureType, prelude::Accessor};
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::Serialize;
-use tauri::Manager;
 use std::{
     collections::HashSet,
     fs,
@@ -9,10 +8,14 @@ use std::{
     sync::{Arc, Mutex},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
+use tauri::Manager;
 
 type Result<T> = std::result::Result<T, String>;
 
-pub fn init<R: tauri::Runtime>() -> tauri::plugin::TauriPlugin<R> {
+#[cfg(target_os = "android")]
+mod android;
+
+pub fn init() -> tauri::plugin::TauriPlugin<tauri::Wry> {
     tauri::plugin::Builder::new("local-audio")
         .setup(|app, _api| {
             app.manage(LocalAudioState::default());
@@ -25,7 +28,10 @@ pub fn init<R: tauri::Runtime>() -> tauri::plugin::TauriPlugin<R> {
             list_audios,
             get_cover,
             refresh_folder,
-            remove_folder
+            remove_folder,
+            pick_folder,
+            read_audio,
+            read_lyrics
         ])
         .build()
 }
@@ -50,7 +56,11 @@ impl Drop for ScanGuard {
 
 impl LocalAudioState {
     fn acquire(&self, key: String) -> Result<ScanGuard> {
-        let key = if cfg!(windows) { key.to_ascii_lowercase() } else { key };
+        let key = if cfg!(windows) {
+            key.to_ascii_lowercase()
+        } else {
+            key
+        };
         let mut scanning = self.scanning.lock().map_err(|e| e.to_string())?;
         if !scanning.insert(key.clone()) {
             return Err("此文件夹正在扫描，请稍后重试".into());
@@ -76,6 +86,7 @@ pub struct Folder {
 pub struct AudioInfo {
     id: i64,
     folder_id: i64,
+    filename: String,
     name: String,
     title: Option<String>,
     artist: Option<String>,
@@ -105,6 +116,7 @@ pub struct Cover {
 
 struct ScannedAudio {
     path: String,
+    filename: String,
     name: String,
     title: Option<String>,
     artist: Option<String>,
@@ -155,6 +167,39 @@ fn open_database(path: &Path) -> Result<Connection> {
             );",
     ))
     .map_err(db_error)?;
+    // Migration 1: preserve original names independently of file paths or document URIs.
+    let has_filename = tx
+        .prepare("PRAGMA table_info(audios)")
+        .map_err(db_error)?
+        .query_map([], |row| row.get::<_, String>(1))
+        .map_err(db_error)?
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .map_err(db_error)?
+        .iter()
+        .any(|name| name == "filename");
+    if !has_filename {
+        tx.execute_batch("ALTER TABLE audios ADD COLUMN filename TEXT NOT NULL DEFAULT '';")
+            .map_err(db_error)?;
+        let paths = tx
+            .prepare("SELECT id, path FROM audios")
+            .map_err(db_error)?
+            .query_map([], |row| {
+                Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+            })
+            .map_err(db_error)?
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(db_error)?;
+        for (id, path) in paths {
+            let filename = path.rsplit(['/', '\\']).next().unwrap_or(&path);
+            tx.execute(
+                "UPDATE audios SET filename = ? WHERE id = ?",
+                params![filename, id],
+            )
+            .map_err(db_error)?;
+        }
+        tx.pragma_update(None, "user_version", 1)
+            .map_err(db_error)?;
+    }
     tx.commit().map_err(db_error)?;
     Ok(db)
 }
@@ -201,7 +246,7 @@ fn query_audios(db: &Connection, folder_id: i64) -> Result<Vec<AudioInfo>> {
     get_folder(db, folder_id)?;
     db.prepare(
         "SELECT id, folder_id, path, name, title, artist, duration_ms,
-        file_size, lrc_path, has_lyrics, (cover_mime IS NOT NULL AND cover_data IS NOT NULL), scan_error FROM audios
+        file_size, lrc_path, has_lyrics, (cover_mime IS NOT NULL AND cover_data IS NOT NULL), scan_error, filename FROM audios
         WHERE folder_id = ? ORDER BY name COLLATE NOCASE, path",
     )
     .map_err(db_error)?
@@ -209,6 +254,7 @@ fn query_audios(db: &Connection, folder_id: i64) -> Result<Vec<AudioInfo>> {
         Ok(AudioInfo {
             id: row.get(0)?,
             folder_id: row.get(1)?,
+            filename: row.get(12)?,
             link: row.get(2)?,
             name: row.get(3)?,
             title: row.get(4)?,
@@ -250,6 +296,11 @@ fn scan_file(path: &Path) -> ScannedAudio {
     let lrc_path = path.with_extension("lrc");
     let mut audio = ScannedAudio {
         path: display_path(path),
+        filename: path
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .into_owned(),
         name: path
             .file_stem()
             .unwrap_or_default()
@@ -303,6 +354,7 @@ fn scan_file(path: &Path) -> ScannedAudio {
     audio
 }
 
+#[cfg(any(not(target_os = "android"), test))]
 fn scan_directory(path: &Path) -> Result<Vec<ScannedAudio>> {
     let entries = fs::read_dir(path).map_err(|e| format!("无法读取文件夹：{e}"))?;
     let mut audios = Vec::new();
@@ -320,19 +372,29 @@ fn scan_directory(path: &Path) -> Result<Vec<ScannedAudio>> {
     Ok(audios)
 }
 
+#[cfg(any(not(target_os = "android"), test))]
 fn save_scan(db: &mut Connection, path: &str, audios: &[ScannedAudio]) -> Result<ScanResult> {
-    let tx = db.transaction().map_err(db_error)?;
     let name = Path::new(path)
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_else(|| path.into());
+    save_named_scan(db, path, &name, audios)
+}
+
+fn save_named_scan(
+    db: &mut Connection,
+    path: &str,
+    name: &str,
+    audios: &[ScannedAudio],
+) -> Result<ScanResult> {
+    let tx = db.transaction().map_err(db_error)?;
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_err(db_error)?
         .as_millis() as i64;
     tx.execute(
         "INSERT INTO folders(path, name, scanned_at) VALUES (?, ?, ?)
-        ON CONFLICT(path) DO UPDATE SET scanned_at = excluded.scanned_at",
+        ON CONFLICT(path) DO UPDATE SET scanned_at = excluded.scanned_at, name = excluded.name",
         params![path, name, now],
     )
     .map_err(db_error)?;
@@ -354,17 +416,17 @@ fn save_scan(db: &mut Connection, path: &str, audios: &[ScannedAudio]) -> Result
     let mut warnings = Vec::new();
     for audio in audios {
         let id: i64 = tx.query_row("INSERT INTO audios(folder_id, path, name, title, artist, duration_ms,
-            file_size, lrc_path, has_lyrics, cover_mime, cover_data, scan_error) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            file_size, lrc_path, has_lyrics, cover_mime, cover_data, scan_error, filename) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(folder_id, path) DO UPDATE SET name=excluded.name, title=excluded.title,
             artist=excluded.artist, duration_ms=excluded.duration_ms, file_size=excluded.file_size,
             lrc_path=excluded.lrc_path, has_lyrics=excluded.has_lyrics,
             cover_mime=excluded.cover_mime, cover_data=excluded.cover_data,
-            scan_error=excluded.scan_error RETURNING id",
+            scan_error=excluded.scan_error, filename=excluded.filename RETURNING id",
             params![folder.id, audio.path, audio.name, audio.title, audio.artist, audio.duration_ms,
                 audio.file_size, audio.lrc_path, audio.has_lyrics,
                 audio.cover.as_ref().map(|cover| cover.mime.as_str()),
                 audio.cover.as_ref().map(|cover| cover.data.as_slice()),
-                audio.error], |r| r.get(0)).map_err(db_error)?;
+                audio.error, audio.filename], |r| r.get(0)).map_err(db_error)?;
         old_ids.remove(&id);
         if let Some(error) = &audio.error {
             warnings.push(format!("{}：{error}", audio.name));
@@ -378,6 +440,7 @@ fn save_scan(db: &mut Connection, path: &str, audios: &[ScannedAudio]) -> Result
     Ok(ScanResult { folder, warnings })
 }
 
+#[cfg(any(not(target_os = "android"), test))]
 fn index_folder(db: &mut Connection, state: &LocalAudioState, path: &Path) -> Result<ScanResult> {
     let canonical = fs::canonicalize(path).map_err(|e| format!("无法打开文件夹：{e}"))?;
     let path = display_path(&canonical);
@@ -400,7 +463,12 @@ fn index_folder(db: &mut Connection, state: &LocalAudioState, path: &Path) -> Re
     save_scan(db, &path, &audios)
 }
 
-fn reindex_folder(db: &mut Connection, state: &LocalAudioState, folder_id: i64) -> Result<ScanResult> {
+#[cfg(any(not(target_os = "android"), test))]
+fn reindex_folder(
+    db: &mut Connection,
+    state: &LocalAudioState,
+    folder_id: i64,
+) -> Result<ScanResult> {
     let folder = get_folder(db, folder_id)?;
     let _guard = state.acquire(folder.link.clone())?;
     // Deletion may have completed between the lookup and acquiring the guard.
@@ -409,26 +477,36 @@ fn reindex_folder(db: &mut Connection, state: &LocalAudioState, folder_id: i64) 
     save_scan(db, &folder.link, &audios)
 }
 
+#[cfg(any(not(target_os = "android"), test))]
 fn remove_indexed_folder(db: &Connection, state: &LocalAudioState, folder_id: i64) -> Result<()> {
+    remove_indexed_folder_with(db, state, folder_id, |_| {})
+}
+
+fn remove_indexed_folder_with(
+    db: &Connection,
+    state: &LocalAudioState,
+    folder_id: i64,
+    after_remove: impl FnOnce(&str),
+) -> Result<()> {
     let folder = get_folder(db, folder_id)?;
-    let _guard = state.acquire(folder.link)?;
-    let removed = db.execute("DELETE FROM folders WHERE id = ?", [folder_id]).map_err(db_error)?;
+    let _guard = state.acquire(folder.link.clone())?;
+    let removed = db
+        .execute("DELETE FROM folders WHERE id = ?", [folder_id])
+        .map_err(db_error)?;
     if removed == 0 {
         return Err("文件夹不存在".into());
     }
+    after_remove(&folder.link);
     Ok(())
 }
 
-fn database_path() -> Result<PathBuf> {
-    let executable =
-        std::env::current_exe().map_err(|error| format!("无法获取应用路径：{error}"))?;
-    let directory = executable.parent().ok_or("无法获取应用所在目录")?;
-    Ok(directory.join("localAudio.sqlite3"))
+fn database_path(app: &tauri::AppHandle) -> Result<PathBuf> {
+    Ok(crate::storage::root(app)?.join("localAudio.sqlite3"))
 }
 
 #[tauri::command]
-pub async fn list_folders() -> Result<Vec<Folder>> {
-    let path = database_path()?;
+pub async fn list_folders(app: tauri::AppHandle) -> Result<Vec<Folder>> {
+    let path = database_path(&app)?;
     tauri::async_runtime::spawn_blocking(move || query_folders(&open_database(&path)?))
         .await
         .map_err(db_error)?
@@ -436,13 +514,21 @@ pub async fn list_folders() -> Result<Vec<Folder>> {
 
 #[tauri::command]
 pub async fn import_folder(
+    app: tauri::AppHandle,
     state: tauri::State<'_, LocalAudioState>,
     path: String,
 ) -> Result<ScanResult> {
-    let database = database_path()?;
+    let database = database_path(&app)?;
     let state = state.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
-        index_folder(&mut open_database(&database)?, &state, Path::new(&path))
+        #[cfg(target_os = "android")]
+        {
+            android::index(&app, &mut open_database(&database)?, &state, &path, false)
+        }
+        #[cfg(not(target_os = "android"))]
+        {
+            index_folder(&mut open_database(&database)?, &state, Path::new(&path))
+        }
     })
     .await
     .map_err(db_error)?
@@ -450,13 +536,23 @@ pub async fn import_folder(
 
 #[tauri::command]
 pub async fn refresh_folder(
+    app: tauri::AppHandle,
     state: tauri::State<'_, LocalAudioState>,
     folder_id: i64,
 ) -> Result<ScanResult> {
-    let database = database_path()?;
+    let database = database_path(&app)?;
     let state = state.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
-        reindex_folder(&mut open_database(&database)?, &state, folder_id)
+        #[cfg(target_os = "android")]
+        {
+            let mut db = open_database(&database)?;
+            let folder = get_folder(&db, folder_id)?;
+            android::index(&app, &mut db, &state, &folder.link, true)
+        }
+        #[cfg(not(target_os = "android"))]
+        {
+            reindex_folder(&mut open_database(&database)?, &state, folder_id)
+        }
     })
     .await
     .map_err(db_error)?
@@ -464,32 +560,108 @@ pub async fn refresh_folder(
 
 #[tauri::command]
 pub async fn remove_folder(
+    app: tauri::AppHandle,
     state: tauri::State<'_, LocalAudioState>,
     folder_id: i64,
 ) -> Result<()> {
-    let database = database_path()?;
+    let database = database_path(&app)?;
     let state = state.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
-        remove_indexed_folder(&open_database(&database)?, &state, folder_id)
+        let db = open_database(&database)?;
+        #[cfg(target_os = "android")]
+        {
+            use tauri_plugin_android_files::AndroidFilesExt;
+            remove_indexed_folder_with(&db, &state, folder_id, |uri| {
+                let _ = app.android_files().release(uri);
+            })
+        }
+        #[cfg(not(target_os = "android"))]
+        {
+            remove_indexed_folder(&db, &state, folder_id)
+        }
     })
     .await
     .map_err(db_error)?
 }
 
 #[tauri::command]
-pub async fn list_audios(folder_id: i64) -> Result<Vec<AudioInfo>> {
-    let path = database_path()?;
+pub async fn list_audios(app: tauri::AppHandle, folder_id: i64) -> Result<Vec<AudioInfo>> {
+    let path = database_path(&app)?;
     tauri::async_runtime::spawn_blocking(move || query_audios(&open_database(&path)?, folder_id))
         .await
         .map_err(db_error)?
 }
 
 #[tauri::command]
-pub async fn get_cover(audio_id: i64) -> Result<Option<Cover>> {
-    let path = database_path()?;
+pub async fn get_cover(app: tauri::AppHandle, audio_id: i64) -> Result<Option<Cover>> {
+    let path = database_path(&app)?;
     tauri::async_runtime::spawn_blocking(move || query_cover(&open_database(&path)?, audio_id))
         .await
         .map_err(db_error)?
+}
+
+#[tauri::command]
+pub async fn pick_folder(app: tauri::AppHandle) -> Result<Option<String>> {
+    #[cfg(target_os = "android")]
+    {
+        use tauri_plugin_android_files::AndroidFilesExt;
+        tauri::async_runtime::spawn_blocking(move || {
+            app.android_files().pick_folder().map(|result| result.uri)
+        })
+        .await
+        .map_err(db_error)?
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = app;
+        Err("桌面端请使用系统文件夹选择器".into())
+    }
+}
+
+fn indexed_file(db: &Connection, audio_id: i64, lyrics: bool) -> Result<String> {
+    let (audio, lrc, has_lyrics): (String, String, bool) = db
+        .query_row(
+            "SELECT path, lrc_path, has_lyrics FROM audios WHERE id = ?",
+            [audio_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .optional()
+        .map_err(db_error)?
+        .ok_or("歌曲不存在")?;
+    if lyrics && !has_lyrics {
+        return Err("歌曲没有歌词".into());
+    }
+    Ok(if lyrics { lrc } else { audio })
+}
+
+async fn read_indexed_file(
+    app: tauri::AppHandle,
+    audio_id: i64,
+    lyrics: bool,
+) -> Result<tauri::ipc::Response> {
+    let database = database_path(&app)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let path = indexed_file(&open_database(&database)?, audio_id, lyrics)?;
+        #[cfg(target_os = "android")]
+        let temporary = android::materialize(&app, &path)?;
+        #[cfg(target_os = "android")]
+        let path = &temporary.0;
+        fs::read(path)
+            .map(tauri::ipc::Response::new)
+            .map_err(|e| format!("无法读取文件：{e}"))
+    })
+    .await
+    .map_err(db_error)?
+}
+
+#[tauri::command]
+pub async fn read_audio(app: tauri::AppHandle, audio_id: i64) -> Result<tauri::ipc::Response> {
+    read_indexed_file(app, audio_id, false).await
+}
+
+#[tauri::command]
+pub async fn read_lyrics(app: tauri::AppHandle, audio_id: i64) -> Result<tauri::ipc::Response> {
+    read_indexed_file(app, audio_id, true).await
 }
 
 #[cfg(test)]
@@ -563,6 +735,77 @@ mod tests {
     }
 
     #[test]
+    fn filename_migration_preserves_ids_metadata_and_cover_and_is_idempotent() {
+        let fixture = Fixture::new();
+        let music = fixture.music();
+        mp3(&music.join("中文 原版.MP3"), true);
+        let mut db = fixture.db();
+        let folder = index_folder(&mut db, &LocalAudioState::default(), &music)
+            .unwrap()
+            .folder;
+        let original = query_audios(&db, folder.id).unwrap().remove(0);
+        let old_path = "C:\\Music\\中文 原版.MP3";
+        db.execute(
+            "UPDATE audios SET path = ? WHERE id = ?",
+            params![old_path, original.id],
+        )
+        .unwrap();
+        db.execute_batch("ALTER TABLE audios DROP COLUMN filename; PRAGMA user_version = 0;")
+            .unwrap();
+        drop(db);
+        for _ in 0..2 {
+            let db = fixture.db();
+            let migrated = query_audios(&db, folder.id).unwrap().remove(0);
+            assert_eq!(migrated.filename, "中文 原版.MP3");
+            assert_eq!(migrated.id, original.id);
+            assert_eq!(migrated.link, old_path);
+            assert_eq!(migrated.title, original.title);
+            assert_eq!(
+                query_cover(&db, original.id).unwrap().unwrap().data,
+                vec![2; 16]
+            );
+            assert_eq!(
+                db.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))
+                    .unwrap(),
+                1
+            );
+        }
+    }
+
+    #[test]
+    fn document_uris_and_display_names_are_saved_without_path_parsing() {
+        let fixture = Fixture::new();
+        let file = fixture.0.join("temp.mp3");
+        mp3(&file, true);
+        let mut audio = scan_file(&file);
+        audio.path = "content://provider/tree/opaque/document/unrelated%2F123".into();
+        audio.filename = "歌曲 空格.MP3".into();
+        audio.lrc_path = "content://provider/tree/opaque/document/another%2F456".into();
+        audio.has_lyrics = true;
+        let mut db = fixture.db();
+        let tree = "content://provider/tree/opaque%3Aidentifier";
+        let folder = save_named_scan(&mut db, tree, "我的音乐", &[audio])
+            .unwrap()
+            .folder;
+        assert_eq!(folder.name, "我的音乐");
+        assert_eq!(folder.link, tree);
+        let indexed = query_audios(&db, folder.id).unwrap().remove(0);
+        assert_eq!(indexed.filename, "歌曲 空格.MP3");
+        assert_eq!(indexed_file(&db, indexed.id, false).unwrap(), indexed.link);
+        assert_eq!(
+            indexed_file(&db, indexed.id, true).unwrap(),
+            indexed.lrc_link
+        );
+        assert!(indexed_file(&db, i64::MAX, false).is_err());
+        db.execute(
+            "UPDATE audios SET has_lyrics = 0 WHERE id = ?",
+            [indexed.id],
+        )
+        .unwrap();
+        assert!(indexed_file(&db, indexed.id, true).is_err());
+    }
+
+    #[test]
     fn removal_cascades_preserves_files_and_other_folders_and_allows_reimport() {
         let fixture = Fixture::new();
         let music = fixture.music();
@@ -579,12 +822,21 @@ mod tests {
         assert!(remove_indexed_folder(&db, &state, folder.id).is_err());
         drop(guard);
         remove_indexed_folder(&db, &state, folder.id).unwrap();
-        let count: i64 = db.query_row("SELECT count(*) FROM audios WHERE folder_id = ?", [folder.id], |r| r.get(0)).unwrap();
+        let count: i64 = db
+            .query_row(
+                "SELECT count(*) FROM audios WHERE folder_id = ?",
+                [folder.id],
+                |r| r.get(0),
+            )
+            .unwrap();
         assert_eq!(count, 0);
         assert_eq!(query_folders(&db).unwrap().len(), 1);
         assert_eq!(query_audios(&db, other_folder.id).unwrap().len(), 1);
         assert!(music.join("song.mp3").exists());
-        assert_eq!(fs::read_to_string(music.join("song.lrc")).unwrap(), "lyrics");
+        assert_eq!(
+            fs::read_to_string(music.join("song.lrc")).unwrap(),
+            "lyrics"
+        );
         let imported = index_folder(&mut db, &state, &music).unwrap();
         assert_ne!(imported.folder.id, folder.id);
         assert_eq!(query_audios(&db, imported.folder.id).unwrap().len(), 1);
@@ -681,14 +933,21 @@ mod tests {
         assert_eq!(after[0].id, first[0].id);
         assert!(after[0].has_lyrics);
         assert!(after[0].has_cover);
-        assert_eq!(query_cover(&db, after[0].id).unwrap().unwrap().data, old_cover.data);
+        assert_eq!(
+            query_cover(&db, after[0].id).unwrap().unwrap().data,
+            old_cover.data
+        );
         assert!(query_cover(&db, first[1].id).is_err());
         assert!(query_cover(&db, after[1].id).unwrap().is_none());
         assert_eq!(after[1].name, "c");
         assert_ne!(after[1].id, first[1].id);
         assert_eq!(
-            db.query_row("SELECT count(*) FROM audios WHERE cover_data IS NOT NULL", [], |r| r.get::<_, i64>(0))
-                .unwrap(),
+            db.query_row(
+                "SELECT count(*) FROM audios WHERE cover_data IS NOT NULL",
+                [],
+                |r| r.get::<_, i64>(0)
+            )
+            .unwrap(),
             1
         );
         drop(db);
@@ -721,8 +980,12 @@ mod tests {
             old_cover.data
         );
         assert_eq!(
-            db.query_row("SELECT count(*) FROM audios WHERE cover_data IS NOT NULL", [], |r| r.get::<_, i64>(0))
-                .unwrap(),
+            db.query_row(
+                "SELECT count(*) FROM audios WHERE cover_data IS NOT NULL",
+                [],
+                |r| r.get::<_, i64>(0)
+            )
+            .unwrap(),
             1
         );
         fs::rename(&music, fixture.0.join("offline")).unwrap();
@@ -753,7 +1016,10 @@ mod tests {
         mp3(&song, true);
         reindex_folder(&mut db, &state, folder.id).unwrap();
         assert!(query_audios(&db, folder.id).unwrap()[0].has_cover);
-        assert_eq!(query_cover(&db, audio_id).unwrap().unwrap().data, vec![2; 16]);
+        assert_eq!(
+            query_cover(&db, audio_id).unwrap().unwrap().data,
+            vec![2; 16]
+        );
         remove_indexed_folder(&db, &state, folder.id).unwrap();
         assert_eq!(query_cover(&db, audio_id).unwrap_err(), "歌曲不存在");
     }

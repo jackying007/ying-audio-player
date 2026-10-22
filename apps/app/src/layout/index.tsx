@@ -8,12 +8,14 @@ import { AppSidebar } from './sidebar'
 import { AppHeader } from './header'
 import { LocalAudioStatus } from './local-audio-status'
 import { AudioPlayer } from './audio-player'
+import { AndroidNavigation } from './android-navigation'
 
 export function AppLayout() {
   const playerOpen = usePlayerOpen()
 
   return (
     <TooltipProvider>
+      <AndroidNavigation />
       <Toaster />
       <SidebarProvider>
         <AppSidebar />

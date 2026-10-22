@@ -9,7 +9,10 @@
     "preview": "vite preview",
     "tauri": "tauri",
     "check": "tsc --noEmit -p tsconfig.json",
-    "lint": "oxlint"
+    "lint": "oxlint",
+    "android:init": "tauri android init --ci --skip-targets-install",
+    "android:dev": "tauri android dev --host 127.0.0.1",
+    "android:build": "tauri android build --target aarch64 --apk"
   },
   "dependencies": {
     "@fontsource-variable/inter": "^5.3.0",

@@ -42,6 +42,7 @@ Object.defineProperty(globalThis, 'Audio', { configurable: true, value: TestAudi
 const files = new Map<string, Uint8Array>()
 let localInvokeHook: ((command: string, input: unknown) => Promise<unknown>) | undefined
 let localReadHook: (() => Promise<Uint8Array>) | undefined
+const localMediaRequests: { command: string; audioId: number }[] = []
 type DiskEntry = { audioPath: string; lyricsPath: string | null }
 const diskEntries = new Map<string, DiskEntry>()
 let diskWriteError = false
@@ -63,6 +64,20 @@ mock.module('@tauri-apps/plugin-fs', () => ({
 }))
 mock.module('@tauri-apps/api/core', () => ({
   invoke: async (command: string, input: { key: NetworkCacheKey } | ArrayBuffer) => {
+    if (command === 'plugin:local-audio|read_audio' || command === 'plugin:local-audio|read_lyrics') {
+      const { audioId } = input as unknown as { audioId: number }
+      localMediaRequests.push({ command, audioId })
+      const current = useAudioStore.getState().currentAudioInfo
+      const indexed = Object.values(useLocalAudioStore.getState())
+        .flatMap(entry => entry.audios ?? [])
+        .find(audio => audio.id === audioId)
+      const audio = current?.source !== 'network' && current?.id === audioId ? current : (indexed ?? local)
+      if (command.endsWith('read_audio') && audioId === 1 && localReadHook)
+        return (await localReadHook()).slice().buffer
+      const bytes = files.get(command.endsWith('read_audio') ? audio.link : audio.lrcLink)
+      if (!bytes) throw new Error('missing indexed file')
+      return bytes.slice().buffer
+    }
     if (command.startsWith('plugin:local-audio|') && localInvokeHook) return localInvokeHook(command, input)
     if (command === 'plugin:network-cache|read_cache') {
       const args = input as { key: NetworkCacheKey }
@@ -192,6 +207,7 @@ beforeEach(() => {
   })
   localInvokeHook = undefined
   localReadHook = undefined
+  localMediaRequests.length = 0
   useNetworkSettings.setState({ serverUrl: '', token: '' })
   useNetworkSettings.setState({ serverUrl: 'http://localhost:8787', token: 'secret' })
   cachedMap.clear()
@@ -1045,6 +1061,54 @@ test('network audio exposes cover availability without embedding cover data', ()
   expect(audio.coverLink).toBe('http://localhost:8787/api/audios/1/cover?v=v1')
   expect(audio).not.toHaveProperty('cover')
   expect(toNetworkAudio(row).hasCover).toBe(false)
+})
+
+test('document URI playback and sync use indexed IDs and preserve the original filename and hashes', async () => {
+  const song: AudioInfo = {
+    ...local,
+    id: 42,
+    filename: '中文 原版.MP3',
+    hasLyrics: true,
+    link: 'content://provider/tree/opaque/document/unrelated%2F123',
+    lrcLink: 'content://provider/tree/opaque/document/another%2F456'
+  }
+  const music = new Uint8Array([0, 255, 42])
+  const lyrics = new TextEncoder().encode('[00:01]歌词')
+  files.set(song.link, music)
+  files.set(song.lrcLink, lyrics)
+  useAppStore.setState({
+    localFolderList: [{ id: 1, name: '音乐', link: 'content://provider/tree/opaque', scannedAt: 0 }]
+  })
+  useLocalAudioStore.setState({ '1': { audios: [song] } }, true)
+  await playAudio(song)
+  expect(useAudioStore.getState().playState).toBe(PlayState.Playing)
+  expect(useAudioStore.getState().currentLrc).toBe('[00:01]歌词')
+  fetchHandler = async (url, init) => {
+    if (url.endsWith('/folders') && init.method === 'POST') return json({ id: 1, name: '音乐' })
+    if (url.endsWith('/uploads')) {
+      const data = JSON.parse(String(init.body))
+      expect(data.filename).toBe('中文 原版.MP3')
+      expect(data.hashes.audio).toBe(new Bun.CryptoHasher('sha256').update(music).digest('hex'))
+      expect(data.hashes.lyrics).toBe(new Bun.CryptoHasher('sha256').update(lyrics).digest('hex'))
+      expect(JSON.stringify(data)).not.toContain('content://')
+      return json({ id: null, unchanged: true, requiredFiles: [] })
+    }
+    return json([])
+  }
+  await syncLocalFolder('1')
+  expect(useNetworkAudioStore.getState().syncs['1']).toMatchObject({ skipped: 1, failures: [] })
+  expect(localMediaRequests).toEqual([
+    { command: 'plugin:local-audio|read_audio', audioId: 42 },
+    { command: 'plugin:local-audio|read_lyrics', audioId: 42 },
+    { command: 'plugin:local-audio|read_audio', audioId: 42 },
+    { command: 'plugin:local-audio|read_lyrics', audioId: 42 }
+  ])
+})
+
+test('an unreadable indexed local lyric does not prevent audio playback', async () => {
+  await playAudio({ ...local, hasLyrics: true })
+  expect(useAudioStore.getState().playState).toBe(PlayState.Playing)
+  expect(useAudioStore.getState().currentLrc).toBeUndefined()
 })
 
 test('sync uses current index, excludes local-only fields and continues after missing lyrics', async () => {
