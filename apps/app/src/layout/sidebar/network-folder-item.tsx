@@ -46,7 +46,7 @@ export function NetworkFolderItem({
   }
 
   return (
-    <SidebarMenuSubItem className="group/network-folder relative">
+    <SidebarMenuSubItem className="relative">
       <SidebarMenuSubButton
         className="cursor-pointer pr-8"
         isActive={pathname === `/network/${folder.id}`}
@@ -55,10 +55,9 @@ export function NetworkFolderItem({
         <span>{folder.name}</span>
       </SidebarMenuSubButton>
       <Button
-        type="button"
-        variant="ghostDestructive"
-        size="icon-sm"
-        className="absolute right-1 top-0.5 size-7 text-muted-foreground [@media(hover:none)]:opacity-100 [@media(hover:none)]:disabled:opacity-50 opacity-0 group-hover/network-folder:opacity-100 group-focus-within/network-folder:opacity-100 disabled:opacity-0 group-hover/network-folder:disabled:opacity-50 group-focus-within/network-folder:disabled:opacity-50"
+        variant="destructive"
+        size="icon-xs"
+        className="absolute right-1 top-0.5"
         title="删除云端文件夹及全部资源"
         disabled={removing || syncing || confirming}
         onClick={() => void handleRemove()}
