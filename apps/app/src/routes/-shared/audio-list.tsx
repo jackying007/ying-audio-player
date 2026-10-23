@@ -1,4 +1,4 @@
-import { AudioLines } from 'lucide-react'
+import { AudioLines, LoaderCircle } from 'lucide-react'
 import { cn } from 'cn'
 import { AudioCover } from './audio-cover'
 import { useAudioStore, PlayState, type AudioInfo } from '@/store/audio-store'
@@ -16,6 +16,7 @@ function formatSize(bytes: number | null) {
 export function AudioList({ audios, onPlay }: { audios: AudioInfo[]; onPlay: (audio: AudioInfo) => unknown }) {
   const current = useAudioStore(state => state.currentAudioInfo)
   const playState = useAudioStore(state => state.playState)
+  const isLoading = useAudioStore(state => state.isLoading)
   return (
     <div className="flex-1 h-1 overflow-x-hidden overflow-y-auto">
       <div className="border-y flex items-center justify-between p-3 pl-0">
@@ -36,7 +37,9 @@ export function AudioList({ audios, onPlay }: { audios: AudioInfo[]; onPlay: (au
           >
             <div className="flex min-w-0">
               <div className="w-12 shrink-0 fc text-sm">
-                {active ? (
+                {active && isLoading ? (
+                  <LoaderCircle className="size-5 text-primary animate-spin" role="status" aria-label="正在加载音乐" />
+                ) : active ? (
                   <AudioLines
                     className={cn(
                       'size-5 text-primary [&_path]:origin-center [&_path]:transform-fill [&_path]:animate-wave [&_path:nth-child(2)]:[animation-delay:-0.3s] [&_path:nth-child(3)]:[animation-delay:-0.5s] [&_path:nth-child(4)]:[animation-delay:-0.7s] [&_path:nth-child(5)]:[animation-delay:-0.2s]',

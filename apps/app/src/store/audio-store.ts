@@ -43,6 +43,7 @@ export type AudioInfo = {
 type AudioStore = {
   showMode: ShowMode
   playState: PlayState
+  isLoading: boolean
   currentAudioInfo?: AudioInfo
   currentLrc?: string
   duration?: number
@@ -56,6 +57,7 @@ type AudioStore = {
 export const useAudioStore = create<AudioStore>(() => ({
   showMode: ShowMode.Hide,
   playState: PlayState.None,
+  isLoading: false,
   audioList: []
 }))
 
@@ -169,6 +171,7 @@ function stopPlayback(audioList: AudioInfo[] = []) {
     duration: undefined,
     showMode: ShowMode.Hide,
     playState: PlayState.None,
+    isLoading: false,
     error: undefined,
     warning: undefined
   })
@@ -245,6 +248,7 @@ const startAudio = async (audioInfo: AudioInfo, playlist?: Pick<AudioStore, 'aud
     currentTime: 0,
     duration: audioInfo.durationMs == null ? undefined : audioInfo.durationMs / 1000,
     playState: PlayState.None,
+    isLoading: true,
     error: undefined,
     warning: undefined
   })
@@ -326,6 +330,8 @@ const startAudio = async (audioInfo: AudioInfo, playlist?: Pick<AudioStore, 'aud
       error: `无法播放“${audioInfo.title ?? audioInfo.name}”：${String(error)}`
     })
     return false
+  } finally {
+    if (request === playRequest) useAudioStore.setState({ isLoading: false })
   }
 }
 
@@ -405,6 +411,7 @@ audio.addEventListener('error', () => {
   if (!audio.error) return
   useAudioStore.setState({
     playState: PlayState.Paused,
+    isLoading: false,
     error: `音频播放失败：${audio.error.message || '文件不存在或格式不受支持'}`
   })
 })

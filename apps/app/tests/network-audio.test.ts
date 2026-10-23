@@ -514,7 +514,9 @@ test('deleting a network folder stops an in-flight audio download and ignores it
   }
   const playing = playAudio(remote, { audioList: [remote], playlistFolderId: 1 })
   await ready.promise
+  expect(useAudioStore.getState().isLoading).toBe(true)
   await removeNetworkFolder(1)
+  expect(useAudioStore.getState().isLoading).toBe(false)
   expect(signal?.aborted).toBe(true)
   pending.resolve(new Response('music'))
   await playing
@@ -699,10 +701,12 @@ test('playback starts before a slow disk save finishes', async () => {
   })
   await saving
   const stateWhileSaving = useAudioStore.getState().playState
+  const loadingWhileSaving = useAudioStore.getState().isLoading
   const resolvedWhileSaving = playbackResolved
   release()
   await playback
   expect(stateWhileSaving).toBe(PlayState.Playing)
+  expect(loadingWhileSaving).toBe(false)
   expect(resolvedWhileSaving).toBe(true)
 })
 
@@ -755,6 +759,65 @@ test('replaying while persistence is pending does not start a duplicate save', a
   await cachedMap.get(remote.link)?.saving
   expect(writes).toBe(1)
 })
+test.each(['local', 'network'] as const)(
+  'loading covers %s reads until audio actually starts playing',
+  async source => {
+    const reading = deferred<Uint8Array>()
+    const starting = deferred<void>()
+    const ready = deferred<void>()
+    localReadHook = () => reading.promise
+    fetchHandler = async () => new Response((await reading.promise).slice().buffer)
+    const originalPlay = TestAudio.instance.play.bind(TestAudio.instance)
+    const play = spyOn(TestAudio.instance, 'play').mockImplementation(async () => {
+      ready.resolve()
+      await starting.promise
+      await originalPlay()
+    })
+    try {
+      const playing = playAudio(source === 'network' ? toNetworkAudio(row) : local)
+      expect(useAudioStore.getState().isLoading).toBe(true)
+      reading.resolve(new Uint8Array([1]))
+      await ready.promise
+      expect(useAudioStore.getState().isLoading).toBe(true)
+      starting.resolve()
+      await playing
+      expect(useAudioStore.getState()).toMatchObject({ isLoading: false, playState: PlayState.Playing })
+    } finally {
+      starting.resolve()
+      play.mockRestore()
+    }
+  }
+)
+
+test('failed downloads and playback clear loading', async () => {
+  fetchHandler = async () => new Response('下载失败', { status: 500 })
+  expect(await playAudio(toNetworkAudio(row))).toBe(false)
+  expect(useAudioStore.getState()).toMatchObject({ isLoading: false, playState: PlayState.Paused })
+  const play = spyOn(TestAudio.instance, 'play').mockRejectedValue(new Error('无法解码'))
+  try {
+    expect(await playAudio(local)).toBe(false)
+    expect(useAudioStore.getState()).toMatchObject({ isLoading: false, playState: PlayState.Paused })
+  } finally {
+    play.mockRestore()
+  }
+})
+
+test('an old read finishing cannot clear loading for a newer song', async () => {
+  const reading = deferred<Uint8Array>()
+  const downloading = deferred<Response>()
+  localReadHook = () => reading.promise
+  fetchHandler = async () => downloading.promise
+  const first = playAudio(local)
+  const remote = toNetworkAudio(row)
+  const second = playAudio(remote)
+  reading.resolve(new Uint8Array([1]))
+  await first
+  expect(useAudioStore.getState()).toMatchObject({ currentAudioInfo: remote, isLoading: true })
+  downloading.resolve(new Response('music'))
+  await second
+  expect(useAudioStore.getState()).toMatchObject({ currentAudioInfo: remote, isLoading: false })
+})
+
 test('network playback downloads with auth and retains the metadata and playlist', async () => {
   const urls: string[] = []
   fetchHandler = async (url, init) => {
