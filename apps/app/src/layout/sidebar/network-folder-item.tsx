@@ -57,7 +57,7 @@ export function NetworkFolderItem({
       <Button
         variant="destructive"
         size="icon-xs"
-        className="absolute right-1 top-0.5"
+        className="absolute right-1 top-1/2 -translate-y-1/2"
         title="删除云端文件夹及全部资源"
         disabled={removing || syncing || confirming}
         onClick={() => void handleRemove()}

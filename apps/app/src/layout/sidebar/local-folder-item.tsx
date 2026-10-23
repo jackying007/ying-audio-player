@@ -57,7 +57,7 @@ export function LocalFolderItem({
         type="button"
         variant="destructive"
         size="icon-xs"
-        className="absolute right-1 top-0.5"
+        className="absolute right-1 top-1/2 -translate-y-1/2"
         title="移除导入记录，保留原文件"
         disabled={busy || refreshing || syncing || confirming}
         onClick={() => void handleRemove()}

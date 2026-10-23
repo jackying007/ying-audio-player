@@ -8,7 +8,6 @@ import {
   // SidebarGroupLabel,
   // SidebarHeader,
   SidebarMenu,
-  SidebarMenuAction,
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarMenuSub,
@@ -17,6 +16,7 @@ import {
   // SidebarFooter,
   // SidebarRail
 } from '@/components/ui/sidebar'
+import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { useAppStore, importLocalFolder } from '@/store/app-store'
 import { usePlayerOpen } from '@/store/audio-store'
@@ -105,15 +105,21 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                     <ChevronRight className="ml-auto transition-transform group-data-[state=open]/collapsible:rotate-90" />
                   </SidebarMenuButton>
                 </CollapsibleTrigger>
-                <SidebarMenuAction
-                  className="right-8! disabled:pointer-events-none disabled:opacity-50"
+                <Button
+                  variant="outline"
+                  size="icon-xs"
+                  className="absolute right-8 top-2.5 md:top-1"
                   title="播放全部"
                   disabled={!inited || loading || importing || playingAll || !localFolderList.length}
                   onClick={handlePlayAll}
                 >
-                  {playingAll ? <LoaderCircle className="animate-spin" /> : <Play />}
-                </SidebarMenuAction>
-                <SidebarMenuAction
+                  {playingAll ? <LoaderCircle className="size-4 animate-spin" /> : <Play className="size-4" />}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="icon-xs"
+                  className="absolute right-1 top-2.5 md:top-1"
+                  title="导入文件夹"
                   disabled={importing || loading || removing}
                   onClick={async () => {
                     const folderId = await importLocalFolder()
@@ -121,15 +127,17 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                     void navigateFromSidebar({ to: '/local/$folderId', params: { folderId: String(folderId) } })
                   }}
                 >
-                  {importing ? <LoaderCircle className="animate-spin" /> : <Plus />}
-                </SidebarMenuAction>
-                {playAllError && <p className="px-2 py-1 text-xs text-destructive break-all">{playAllError}</p>}
+                  {importing ? <LoaderCircle className="size-4 animate-spin" /> : <Plus className="size-4" />}
+                </Button>
+                {playAllError && (
+                  <p className="px-2 py-1 text-sm text-destructive break-all md:text-xs">{playAllError}</p>
+                )}
                 <CollapsibleContent>
                   <SidebarMenuSub>
                     {localFolderList?.map(folder => (
                       <LocalFolderItem key={folder.id} folder={folder} onNavigate={navigateFromSidebar} />
                     ))}
-                    {!localFolderList?.length && <p className="text-sm">暂无导入</p>}
+                    {!localFolderList?.length && <p className="text-base md:text-sm">暂无导入</p>}
                   </SidebarMenuSub>
                 </CollapsibleContent>
               </SidebarMenuItem>
@@ -143,22 +151,28 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                     <ChevronRight className="ml-auto transition-transform group-data-[state=open]/network:rotate-90" />
                   </SidebarMenuButton>
                 </CollapsibleTrigger>
-                <SidebarMenuAction
-                  className="right-8! disabled:pointer-events-none disabled:opacity-50"
+                <Button
+                  variant="outline"
+                  size="icon-xs"
+                  className="absolute right-8 top-2.5 md:top-1"
                   title="播放全部"
                   disabled={networkLoading || playingAllNetwork || !serverUrl || !token || !networkFolders.length}
                   onClick={handlePlayAllNetwork}
                 >
-                  {playingAllNetwork ? <LoaderCircle className="animate-spin" /> : <Play />}
-                </SidebarMenuAction>
-                <SidebarMenuAction
+                  {playingAllNetwork ? <LoaderCircle className="size-4 animate-spin" /> : <Play className="size-4" />}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="icon-xs"
+                  className="absolute right-1 top-2.5 md:top-1"
+                  title="刷新网络文件夹"
                   disabled={networkLoading || !serverUrl || !token}
                   onClick={() => void loadNetworkFolders()}
                 >
-                  {networkLoading ? <LoaderCircle className="animate-spin" /> : <RefreshCw />}
-                </SidebarMenuAction>
+                  {networkLoading ? <LoaderCircle className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
+                </Button>
                 {networkPlayAllError && !networkPlayAllError.signal.aborted && (
-                  <p role="alert" className="px-2 py-1 text-xs text-destructive break-all">
+                  <p role="alert" className="px-2 py-1 text-sm text-destructive break-all md:text-xs">
                     {networkPlayAllError.message}
                   </p>
                 )}
@@ -176,10 +190,10 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                       </SidebarMenuSubButton>
                     )}
                     {serverUrl && token && !networkLoading && !networkError && !networkFolders.length && (
-                      <p className="text-sm">暂无同步的文件夹</p>
+                      <p className="text-base md:text-sm">暂无同步的文件夹</p>
                     )}
                     {networkError && (
-                      <p role="alert" className="text-xs text-destructive break-all">
+                      <p role="alert" className="text-sm text-destructive break-all md:text-xs">
                         {networkError}
                       </p>
                     )}
