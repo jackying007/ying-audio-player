@@ -4,17 +4,14 @@ import { ChevronRight, Cloud, Folder, LoaderCircle, Play, Plus, RefreshCw, Setti
 import {
   Sidebar,
   SidebarContent,
+  SidebarFooter,
   SidebarGroup,
-  // SidebarGroupLabel,
-  // SidebarHeader,
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarMenuSub,
   SidebarMenuSubButton,
   useSidebar
-  // SidebarFooter,
-  // SidebarRail
 } from '@/components/ui/sidebar'
 import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
@@ -91,10 +88,8 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
 
   return (
     <Sidebar {...props}>
-      {/* <SidebarHeader>xx</SidebarHeader> */}
       <SidebarContent>
         <SidebarGroup>
-          {/* <SidebarGroupLabel>xx</SidebarGroupLabel> */}
           <SidebarMenu>
             <Collapsible defaultOpen className="group/collapsible">
               <SidebarMenuItem>
@@ -201,21 +196,23 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                 </CollapsibleContent>
               </SidebarMenuItem>
             </Collapsible>
-            <SidebarMenuItem>
-              <SidebarMenuButton
-                isActive={pathname === '/settings'}
-                onClick={() => void navigateFromSidebar({ to: '/settings' })}
-              >
-                <Settings />
-                <span>App 设置</span>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
           </SidebarMenu>
         </SidebarGroup>
       </SidebarContent>
-      {/* <SidebarFooter>xx</SidebarFooter>
-      <SidebarRail /> */}
-      {playerOpen && <div className="h-20" />}
+      <SidebarFooter className="shrink-0">
+        <SidebarMenu>
+          <SidebarMenuItem>
+            <SidebarMenuButton
+              isActive={pathname === '/settings'}
+              onClick={() => void navigateFromSidebar({ to: '/settings' })}
+            >
+              <Settings />
+              <span>App 设置</span>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        </SidebarMenu>
+      </SidebarFooter>
+      {playerOpen && <div className="h-20 shrink-0" />}
     </Sidebar>
   )
 }
