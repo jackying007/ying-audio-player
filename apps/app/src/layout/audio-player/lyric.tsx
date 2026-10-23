@@ -109,7 +109,7 @@ export function Lyric() {
         {lrcTimes.map((time, i) => (
           <div
             key={i}
-            className="flex flex-col items-center my-4 relative py-3"
+            className="flex flex-col items-center my-4 relative p-3"
             ref={dom => {
               if (!dom) return
               lrcDivMapRef.current[time] = dom
@@ -117,8 +117,8 @@ export function Lyric() {
           >
             <div
               className={cn(
-                'text-center cursor-pointer transition-all opacity-50 hover:opacity-100 peer',
-                currentTimeStr === time && 'scale-[1.1] opacity-100'
+                'text-center cursor-pointer transition-opacity duration-300 opacity-50 hover:opacity-100 peer',
+                currentTimeStr === time && 'opacity-100'
               )}
               onClick={() => {
                 setCurrentTime(timeStrToNumber(time))
