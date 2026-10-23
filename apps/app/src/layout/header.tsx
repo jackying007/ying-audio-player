@@ -12,7 +12,7 @@ export function AppHeader() {
       data-tauri-drag-region={isAndroid ? undefined : true}
       className={`flex justify-between p-2 ${isAndroid ? '' : 'cursor-move'}`}
     >
-      <SidebarTrigger variant="ghost" className="w-8 h-8" />
+      <SidebarTrigger variant="outline" className="w-8 h-8" />
 
       <div className="flex gap-x-2">
         {import.meta.env.DEV && (

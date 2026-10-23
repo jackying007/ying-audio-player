@@ -119,22 +119,22 @@ export function Controller() {
           )}
         </div>
 
-        <div className="flex-1 flex justify-center items-center">
-          <Button variant="ghost" size="default" onClick={playPrevAudio}>
+        <div className={cn('flex justify-center items-center gap-1 mr-1', !isMobile && 'flex-1 mr-0')}>
+          <Button variant="outline" size="icon-sm" onClick={playPrevAudio}>
             <SkipBack className="w-6 h-6" />
           </Button>
-          <Button variant="ghost" size="default" onClick={togglePauseOrPlay}>
+          <Button variant="outline" size="icon-sm" onClick={togglePauseOrPlay}>
             {playState === PlayState.Playing ? <Pause className="w-6 h-6" /> : <Play className="w-6 h-6" />}
           </Button>
-          <Button variant="ghost" size="default" onClick={playNextAudio}>
+          <Button variant="outline" size="icon-sm" onClick={playNextAudio}>
             <SkipForward className="w-6 h-6" />
           </Button>
         </div>
 
-        <div className="flex-1 flex justify-end items-center">
+        <div className={cn('flex justify-end items-center gap-1', !isMobile && 'flex-1')}>
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button variant="ghost" size="icon" onClick={cyclePlayMode}>
+              <Button variant="outline" size="icon-sm" onClick={cyclePlayMode}>
                 <PlayModeIcon />
               </Button>
             </TooltipTrigger>
@@ -143,7 +143,12 @@ export function Controller() {
           {!isMobile && (
             <Popover open={volumePopoverOpen} onOpenChange={setVolumePopoverOpen}>
               <PopoverTrigger asChild>
-                <Button variant="ghost" size="icon" onMouseEnter={openVolumePopover} onMouseLeave={closeVolumePopover}>
+                <Button
+                  variant="outline"
+                  size="icon-sm"
+                  onMouseEnter={openVolumePopover}
+                  onMouseLeave={closeVolumePopover}
+                >
                   <VolumeIcon />
                 </Button>
               </PopoverTrigger>
@@ -167,8 +172,8 @@ export function Controller() {
             </Popover>
           )}
           <Button
-            variant="ghost"
-            size="icon"
+            variant="outline"
+            size="icon-sm"
             onClick={() => {
               if (showMode !== ShowMode.Fullscreen) {
                 useAudioStore.setState({
