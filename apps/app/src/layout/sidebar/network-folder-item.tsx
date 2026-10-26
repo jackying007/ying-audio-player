@@ -58,7 +58,10 @@ export function NetworkFolderItem({
           size="icon-xs"
           title="删除云端文件夹及全部资源"
           disabled={removing || syncing || confirming}
-          onClick={() => void handleRemove()}
+          onClick={e => {
+            e.stopPropagation()
+            void handleRemove()
+          }}
         >
           {removing ? <LoaderCircle className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
         </Button>

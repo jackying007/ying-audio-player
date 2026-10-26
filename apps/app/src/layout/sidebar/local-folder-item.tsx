@@ -58,7 +58,10 @@ export function LocalFolderItem({
           size="icon-xs"
           title="移除导入记录，保留原文件"
           disabled={busy || refreshing || syncing || confirming}
-          onClick={() => void handleRemove()}
+          onClick={e => {
+            e.stopPropagation()
+            void handleRemove()
+          }}
         >
           {removing ? <LoaderCircle className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
         </Button>
