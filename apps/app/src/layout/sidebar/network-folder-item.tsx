@@ -46,24 +46,23 @@ export function NetworkFolderItem({
   }
 
   return (
-    <SidebarMenuSubItem className="relative">
+    <SidebarMenuSubItem>
       <SidebarMenuSubButton
-        className="cursor-pointer pr-8"
+        className="cursor-pointer flex items-center pl-2 pr-1 py-4"
         isActive={pathname === `/network/${folder.id}`}
         onClick={() => void onNavigate({ to: '/network/$folderId', params: { folderId: String(folder.id) } })}
       >
-        <span>{folder.name}</span>
+        <span className="mr-auto">{folder.name}</span>
+        <Button
+          variant="destructive"
+          size="icon-xs"
+          title="删除云端文件夹及全部资源"
+          disabled={removing || syncing || confirming}
+          onClick={() => void handleRemove()}
+        >
+          {removing ? <LoaderCircle className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
+        </Button>
       </SidebarMenuSubButton>
-      <Button
-        variant="destructive"
-        size="icon-xs"
-        className="absolute right-1 top-1/2 -translate-y-1/2"
-        title="删除云端文件夹及全部资源"
-        disabled={removing || syncing || confirming}
-        onClick={() => void handleRemove()}
-      >
-        {removing ? <LoaderCircle className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
-      </Button>
     </SidebarMenuSubItem>
   )
 }

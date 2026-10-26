@@ -174,16 +174,5 @@
 }
 
 *::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
-}
-
-*::-webkit-scrollbar-track {
-  background-color: hsl(var(--muted));
-  border-radius: 5px;
-}
-
-*::-webkit-scrollbar-thumb {
-  background-color: rgb(207, 207, 207);
-  border-radius: 5px;
+  display: none;
 }

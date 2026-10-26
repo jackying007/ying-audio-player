@@ -10,7 +10,12 @@ export function AppHeader() {
   return (
     <div
       data-tauri-drag-region={isAndroid ? undefined : true}
-      className={`flex justify-between p-2 ${isAndroid ? '' : 'cursor-move'}`}
+      className={`flex shrink-0 justify-between p-2 ${isAndroid ? '' : 'cursor-move'}`}
+      style={
+        isAndroid
+          ? { paddingTop: 'calc(var(--android-top-inset, env(safe-area-inset-top, 0px)) + var(--spacing) * 2)' }
+          : undefined
+      }
     >
       <SidebarTrigger variant="outline" className="w-8 h-8" />
 
