@@ -21,7 +21,7 @@ Bun workspace + Turborepo，包含 Tauri 桌面/Android 播放器和 Cloudflare 
 - 服务端 HTTP 请求统一使用 `@jying/http`，业务调用从 `@/api` 导入。当前网络接口全部集中在 `apps/app/src/api/business/network.ts`，统一导出 `networkApi`；新增网络接口继续放在此文件。
 - 沿用现有工厂格式：业务文件默认导出接收 `HttpRequest` 的函数，返回接口方法对象；`api/index.ts` 通过动态导入加载工厂并注入 `http-client.ts` 的共享 `http` 实例。请求与响应类型统一放在 `api/types.ts`。
 - 接口方法按行为命名，如 `listFolders`、`createFolder`、`createUpload`、`commitUpload`；媒体下载使用 `getAudio`、`getLyrics`、`getCover`。
-- 业务方法使用相对 API 路径（如 `/folders`）；`http-client.ts` 统一从当前 App 设置读取服务端地址和密钥，拼接服务端地址及 `/api`、添加 Bearer 鉴权。收到现有歌曲条目的完整媒体 URL 时，先通过 `mediaPath` 校验属于当前服务端并提取相对路径，保留版本参数。
+- 业务方法使用相对 API 路径（如 `/folders`）；`http-client.ts` 统一从当前 App 设置读取服务端地址和密钥，拼接服务端地址及 `/api`，通过 `query.authToken` 传递原始密钥鉴权（不带 Bearer 前缀）。收到现有歌曲条目的完整媒体 URL 时，先通过 `mediaPath` 校验属于当前服务端并提取相对路径；共享请求钩子将 URL 已有查询参数合并到 `query`，保留版本参数并以当前设置覆盖 `authToken`。
 - JSON 请求体使用库的 `data`，查询参数使用 `query`，二进制上传使用 `body`。媒体方法通过 `responseType` 直接返回音频 `ArrayBuffer`、歌词文本或封面 `Blob`，调用方直接使用解析后的数据。
 - 服务端错误统一为文本；`afterError` 使用 `Response.text()` 读取错误消息，空内容使用带状态码的默认提示，构造保留 `status`、`statusText` 的 `HttpError`。业务按需检查 `HttpError.status`。
 - `signal` 仅在调用方实际需要取消请求时添加并透传，如播放、封面加载和同步；`listFolders`、`listAudios` 保持无 `signal` 参数。连接级取消统一由 `http-client.ts` 维护，与调用方信号合并；地址或密钥变化时取消旧连接请求。
@@ -77,7 +77,7 @@ Tauri 自动启动 Vite 并打开窗口。Vite 固定使用 `http://localhost:14
 - 同步按文件夹名称精确合并、按「文件夹 + 完整文件名」匹配歌曲；同名覆盖，云端独有歌曲保留。上传音频、歌词、封面和本地歌曲元数据，不提交本地数据库 ID、绝对路径、`scanError` 或整个 SQLite 文件。
 - 分别计算音频、歌词、封面的 SHA-256；创建上传时由服务端返回 `requiredFiles` 和 `unchanged`。只传变化、hash 缺失或云端缺失的文件；仅元数据变化时复用对象，完全一致时跳过。R2 校验实际上传内容。
 - 同步逐首执行并显示成功、跳过及失败数量；普通文件失败继续，鉴权失败停止。同一文件夹同步期间禁用重复同步和刷新。索引声明有歌词却读取失败时，该歌曲同步失败；无歌词或封面时覆盖会清除旧关联。
-- 网络播放携带 Bearer 密钥下载完整音频，再转为 Blob 播放；封面按需加载，歌词或封面失败不阻止音频。音频上限 50 MiB、歌词 1 MiB、封面 10 MiB。
+- 网络播放通过查询参数 `authToken` 携带密钥下载完整音频，再转为 Blob 播放；封面按需加载，歌词或封面失败不阻止音频。音频上限 50 MiB、歌词 1 MiB、封面 10 MiB。
 - 网络歌曲按「内存 → 磁盘 → 网络」读取。音频和所需歌词下载完毕后，先生成 Blob 开始播放，再通过二进制 IPC 在后台保存到**可执行文件同目录**的 `network/<歌曲文件夹名>/<原始文件名>`，同目录保存同名 LRC；保留中文、空格、扩展名大小写，仅处理文件系统非法名称。开发时通常位于 `apps/app/src-tauri/target/debug/network`，目录需可写。版本、连接摘要及完成标记单独保存在程序旁的 `.network-cache` 中，不在歌曲目录添加 ID、版本或摘要层级；连接摘要不含明文密钥，不同连接的同路径文件覆盖保存，但只匹配当前连接的缓存。
 - 磁盘缓存按列表已有 `version` 匹配，不额外请求版本。命中时不请求音频与歌词；文件夹、歌曲列表和封面仍联网，暂不支持完整离线浏览。新版本覆盖原文件，无歌词时删除旧 LRC。缓存使用临时文件和完成标记；文件缺失、长度不符或读取失败时重新下载。无歌词歌曲仅保存音频；歌词下载失败时播放音频并警告，不发布完整缓存；保存失败不阻止本次播放。可手动删除 `network` 和 `.network-cache` 清理缓存。
 - 本地和网络共用暂停、上一首/下一首、顺序/随机/单曲循环、进度、音量及歌词。保留请求序号防竞态、来源隔离、缓存失效和 Blob URL 回收；覆盖当前歌曲后同步更新当前条目及队列版本。
@@ -94,7 +94,7 @@ Tauri 自动启动 Vite 并打开窗口。Vite 固定使用 `http://localhost:14
 - 数据库访问由 `src/db/middleware.ts` 配置的 Drizzle 实例提供；接口通过 `c.get('db')` 获取，定时任务通过 `createDb` 初始化。
 - `business/base.validator.ts` 提供路由参数校验，数值 ID 为正安全整数，上传 ID 为 UUID；`app.error.handler.ts` 统一处理 HTTP 异常。
 - 服务端请求的 Zod schema 校验统一使用 `business/base.validator.ts` 导出的 `zValidator` 中间件，通过 `c.req.valid(...)` 获取校验后的数据；不要在路由中手写 `safeParse` / `parse` 及校验错误处理。
-- 服务端通过 `API_TOKEN` 校验 Bearer 密钥，本地配置位于 `.env`，示例为 `.env.example`。鉴权与 CORS 在 `main.ts`，放行开发浏览器/Tauri 来源的预检；实际密钥不写入文档、日志或提交。
+- 服务端通过 `API_TOKEN` 对查询参数 `authToken` 的原始值做时序安全比较，仅接受 query 鉴权。本地配置位于 `.env`，示例为 `.env.example`。鉴权与 CORS 在 `main.ts`，放行开发浏览器/Tauri 来源的预检；实际密钥不写入文档、日志或提交。
 
 ## 验证与维护
 

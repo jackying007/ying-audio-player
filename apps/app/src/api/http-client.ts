@@ -24,10 +24,13 @@ http.addHooks({
         status: 401,
         statusText: 'Unauthorized'
       })
+    const url = new URL(`${serverUrl}/api${options.url}`)
+    // @jying/http appends query with "?", so merge URL parameters before serialization.
+    const query = { ...Object.fromEntries(url.searchParams), ...options.query, authToken: token }
     return {
       ...options,
-      url: `${serverUrl}/api${options.url}`,
-      headers: { ...options.headers, Authorization: `Bearer ${token}` },
+      url: `${url.origin}${url.pathname}`,
+      query,
       signal: options.signal ? AbortSignal.any([connection.signal, options.signal]) : connection.signal
     }
   },

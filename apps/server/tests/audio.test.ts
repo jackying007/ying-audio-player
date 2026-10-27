@@ -109,7 +109,7 @@ const metadata = {
   coverMime: 'image/jpeg'
 }
 async function request(path: string, method = 'GET', body?: unknown, token = 'test-key') {
-  const headers: Record<string, string> = { Authorization: `Bearer ${token}` }
+  const headers: Record<string, string> = {}
   let payload: string | undefined
   if (typeof body === 'string') {
     payload = body
@@ -118,7 +118,9 @@ async function request(path: string, method = 'GET', body?: unknown, token = 'te
     payload = JSON.stringify(body)
     headers['Content-Type'] = 'application/json'
   }
-  return app.request(`http://localhost/api${path}`, { method, headers, body: payload }, env)
+  const url = new URL(`http://localhost/api${path}`)
+  url.searchParams.set('authToken', token)
+  return app.request(url.toString(), { method, headers, body: payload }, env)
 }
 async function folder(name = '收藏') {
   const response = await request('/folders', 'POST', { name })
@@ -403,7 +405,7 @@ describe('audio API', () => {
         headers: {
           Origin: 'http://localhost:1420',
           'Access-Control-Request-Method': 'DELETE',
-          'Access-Control-Request-Headers': 'authorization'
+          'Access-Control-Request-Headers': 'content-type'
         }
       },
       env
@@ -540,7 +542,23 @@ describe('audio API', () => {
     }
   })
   test('auth fails closed; preflight works without a token', async () => {
+    expect((await request('/folders')).status).toBe(200)
     expect((await request('/folders', 'GET', undefined, 'wrong')).status).toBe(401)
+    expect((await request('/folders', 'GET', undefined, '')).status).toBe(401)
+    expect((await request('/folders', 'GET', undefined, 'Bearer test-key')).status).toBe(401)
+    expect((await app.request('http://localhost/api/folders', {}, env)).status).toBe(401)
+    expect(
+      (await app.request('http://localhost/api/folders', { headers: { Authorization: 'Bearer test-key' } }, env)).status
+    ).toBe(401)
+    expect(
+      (
+        await app.request(
+          'http://localhost/api/folders?authToken=test-key',
+          { headers: { Authorization: 'Bearer wrong' } },
+          env
+        )
+      ).status
+    ).toBe(200)
     env.API_TOKEN = ''
     expect((await request('/folders')).status).toBe(503)
     const response = await app.request(
@@ -550,13 +568,25 @@ describe('audio API', () => {
         headers: {
           Origin: 'http://localhost:1420',
           'Access-Control-Request-Method': 'PUT',
-          'Access-Control-Request-Headers': 'authorization'
+          'Access-Control-Request-Headers': 'content-type'
         }
       },
       env
     )
     expect(response.status).toBe(204)
     expect(response.headers.get('Access-Control-Allow-Origin')).toBe('http://localhost:1420')
+    expect(response.headers.get('Access-Control-Allow-Headers')).toBe('Content-Type')
+  })
+  test('query authentication decodes special characters and preserves media versions', async () => {
+    const f = await folder()
+    const id = await upload(f.id)
+    await files(id)
+    await request(`/uploads/${id}/commit`, 'POST')
+    env.API_TOKEN = 'key+&= 中文'
+    const response = await request(`/audios/1/audio?v=${id}`, 'GET', undefined, env.API_TOKEN)
+    expect(response.status).toBe(200)
+    expect(await response.text()).toBe('music')
+    expect((await request('/audios/1/audio?v=old', 'GET', undefined, env.API_TOKEN)).status).toBe(409)
   })
   test('folders merge by exact name and metadata excludes local diagnostic fields', async () => {
     const a = await folder()
@@ -662,10 +692,10 @@ describe('audio API', () => {
     const id = await upload(f.id)
     expect((await request(`/uploads/${id}/audio`, 'PUT', 'changed-size')).status).toBe(400)
     const large = await app.request(
-      `http://localhost/api/uploads/${id}/audio`,
+      `http://localhost/api/uploads/${id}/audio?authToken=test-key`,
       {
         method: 'PUT',
-        headers: { Authorization: 'Bearer test-key', 'Content-Length': String(51 * 1024 * 1024) },
+        headers: { 'Content-Length': String(51 * 1024 * 1024) },
         body: 'x'
       },
       env

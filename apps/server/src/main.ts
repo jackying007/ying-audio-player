@@ -17,13 +17,13 @@ app.use(
         ? origin
         : '',
     allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowHeaders: ['Authorization', 'Content-Type'],
+    allowHeaders: ['Content-Type'],
     maxAge: 86400
   })
 )
 app.use('*', async (c, next) => {
   if (!c.env.API_TOKEN) throw new HTTPException(503, { message: '服务端未配置密钥' })
-  if (!(await timingSafeEqual(c.req.header('Authorization') ?? '', `Bearer ${c.env.API_TOKEN}`)))
+  if (!(await timingSafeEqual(c.req.query('authToken') ?? '', c.env.API_TOKEN)))
     throw new HTTPException(401, { message: '密钥错误' })
   await next()
 })

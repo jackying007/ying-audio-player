@@ -4,12 +4,17 @@ const origin = process.env.MUSIC_SMOKE_URL ?? 'http://127.0.0.1:8788'
 if (!['localhost', '127.0.0.1'].includes(new URL(origin).hostname))
   throw new Error('Smoke tests require a local Worker')
 const base = `${origin}/api`
-const headers = { Authorization: `Bearer ${process.env.MUSIC_SMOKE_TOKEN ?? 'local-smoke-key'}` }
+const token = process.env.MUSIC_SMOKE_TOKEN ?? 'local-smoke-key'
+function authenticatedUrl(path: string) {
+  const url = new URL(base + path)
+  url.searchParams.set('authToken', token)
+  return url
+}
 
 async function request(path: string, method = 'GET', body?: object | string) {
-  const response = await fetch(base + path, {
+  const response = await fetch(authenticatedUrl(path), {
     method,
-    headers: { ...headers, ...(typeof body === 'object' ? { 'Content-Type': 'application/json' } : {}) },
+    headers: typeof body === 'object' ? { 'Content-Type': 'application/json' } : undefined,
     body: body === undefined ? undefined : typeof body === 'object' ? JSON.stringify(body) : body
   })
   if (!response.ok) throw new Error(`${path}: ${response.status} ${await response.text()}`)
@@ -32,7 +37,7 @@ const upload = await request(`/folders/${folder.id}/uploads`, 'POST', { ...metad
 await request(`/uploads/${upload.id}/audio`, 'PUT', 'music')
 await request(`/uploads/${upload.id}/lyrics`, 'PUT', '[00:01]lyrics')
 await request(`/uploads/${upload.id}/cover`, 'PUT', 'image')
-const duplicate = await fetch(`${base}/uploads/${upload.id}/audio`, { method: 'PUT', headers, body: 'music' })
+const duplicate = await fetch(authenticatedUrl(`/uploads/${upload.id}/audio`), { method: 'PUT', body: 'music' })
 if (duplicate.status !== 409) throw new Error('Staged objects must be immutable')
 await request(`/uploads/${upload.id}/commit`, 'POST')
 const same = await request(`/folders/${folder.id}/uploads`, 'POST', { ...metadata, hashes })
@@ -51,11 +56,11 @@ const bad = await request(`/folders/${folder.id}/uploads`, 'POST', {
   coverMime: null,
   hashes: { audio: hashes.audio, lyrics: null, cover: null }
 })
-const badChecksum = await fetch(`${base}/uploads/${bad.id}/audio`, { method: 'PUT', headers, body: 'other' })
+const badChecksum = await fetch(authenticatedUrl(`/uploads/${bad.id}/audio`), { method: 'PUT', body: 'other' })
 if (badChecksum.status !== 400)
   throw new Error(`Expected checksum rejection, got ${badChecksum.status}: ${await badChecksum.text()}`)
 const rows = await request(`/folders/${folder.id}/audios`)
-const response = await fetch(`${base}/audios/${rows[0].id}/audio`, { headers })
+const response = await fetch(authenticatedUrl(`/audios/${rows[0].id}/audio`))
 if ((await response.text()) !== 'music' || rows[0].title !== metadata.title)
   throw new Error('Audio or metadata did not roundtrip')
 await request(`/uploads/${upload.id}/commit`, 'POST')
