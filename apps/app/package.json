@@ -10,6 +10,7 @@
     "tauri": "tauri",
     "check": "tsc --noEmit -p tsconfig.json",
     "lint": "oxlint",
+    "windows:build": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-windows.ps1",
     "android:init": "tauri android init --ci --skip-targets-install",
     "android:dev": "tauri android dev --host 127.0.0.1",
     "android:build": "tauri android build --target aarch64 --apk"

@@ -107,9 +107,11 @@ Tauri 自动启动 Vite 并打开窗口。Vite 固定使用 `http://localhost:14
 | 前端测试类型检查 | 根目录 | `bunx tsc --noEmit -p apps/app/tests/tsconfig.json` |
 | 服务端测试及其类型检查 | `apps/server` | `bun run test` / `bun run test:check` |
 | Rust 扫描/索引测试 | `apps/app/src-tauri` | `cargo test` |
-| 桌面安装包 | `apps/app` | `bun run tauri build` |
+| Windows 桌面绿色版 | `apps/app` | `bun run windows:build` |
 
 普通前端 `check` 不含测试；Rust 检查不由 Turbo 执行；根目录 `build` 不打桌面包或部署 Worker。缺少 `.git` 导致 Turbo 失败时，可用 `bun run --filter '*' check`（或 `lint` / `build`）。
+
+- Windows 桌面交付默认为 Release 绿色版，交付目录 `apps/app/src-tauri/target/release/portable` 仅保留压缩包，沿用 target 的现有忽略规则。压缩包按 `ying-audio-player-<版本>-windows-x64-portable.zip` 命名，版本读取 `src-tauri/tauri.conf.json`；包内为 `YingAudioPlayer/YingAudioPlayer.exe`，文件夹和主程序仅使用应用名称的大驼峰形式。仅打包程序文件，避免混入运行后生成的索引、设置或音乐缓存。
 
 - 桌面回归：导入、刷新及重启恢复；本地/网络播放控制、三种播放模式和歌词；重复同步跳过、只改歌词、仅元数据变化、覆盖正在播放的歌曲、缺失文件、断网及错误密钥。
 - Worker 联调使用独立本地库：在 `apps/server` 执行 `bunx wrangler d1 migrations apply D1 --local --persist-to .wrangler/music-smoke`，再运行 `bunx wrangler dev --ip 127.0.0.1 --port 8788 --persist-to .wrangler/music-smoke --var API_TOKEN:local-smoke-key --test-scheduled`；另开终端在同目录执行 `bun run test:worker`。脚本默认本机 8788 和上述测试密钥，覆盖 hash 去重、校验、发布及清理；本地定时任务需 `--test-scheduled` 后调用 `/__scheduled` 触发。
