@@ -216,7 +216,7 @@ describe('audio API', () => {
     await request(`/folders/${f.id}`, 'DELETE')
     await finishBackground()
     expect([...bucket.objects.keys()].sort()).toEqual(
-      ['audio', 'cover', 'lyrics'].map(kind => `music/${otherId}/${kind}`)
+      ['audio', 'cover', 'lyrics'].map(kind => `${otherId}/${kind}`)
     )
     expect(await audios(other.id)).toHaveLength(1)
     expect((await request(`/uploads/${reused.id}/commit`, 'POST')).status).toBe(404)
@@ -243,7 +243,7 @@ describe('audio API', () => {
     })
     bucket.delete = async key => {
       await pending
-      if (key === `music/${id}/audio`) throw new Error('R2 unavailable')
+      if (key === `${id}/audio`) throw new Error('R2 unavailable')
       await deleteObject(key)
     }
     const response = await request(`/folders/${f.id}`, 'DELETE')
@@ -251,8 +251,8 @@ describe('audio API', () => {
     expect(bucket.objects.size).toBe(3)
     release()
     await finishBackground()
-    expect([...bucket.objects.keys()]).toEqual([`music/${id}/audio`])
-    expect(await createDb(env.D1).select().from(audioGarbage)).toEqual([{ key: `music/${id}/audio` }])
+    expect([...bucket.objects.keys()]).toEqual([`${id}/audio`])
+    expect(await createDb(env.D1).select().from(audioGarbage)).toEqual([{ key: `${id}/audio` }])
     bucket.delete = deleteObject
     await cleanupAudio(createDb(env.D1), env.R2)
     expect(bucket.objects.size).toBe(0)
@@ -288,7 +288,7 @@ describe('audio API', () => {
         }
       release()
       expect((await uploading).status).toBe(409)
-      expect(await createDb(env.D1).select().from(audioGarbage)).toEqual(failed ? [{ key: `music/${id}/audio` }] : [])
+      expect(await createDb(env.D1).select().from(audioGarbage)).toEqual(failed ? [{ key: `${id}/audio` }] : [])
       bucket.delete = deleteObject
       await cleanupAudio(createDb(env.D1), env.R2)
       expect(bucket.objects.size).toBe(0)
@@ -297,7 +297,7 @@ describe('audio API', () => {
   test('an overlapping cleaner cannot erase a late PUT retry after its compensating deletion fails', async () => {
     const f = await folder()
     const id = await upload(f.id, { hasLyrics: false, coverMime: null })
-    const key = `music/${id}/audio`
+    const key = `${id}/audio`
     const put = bucket.put.bind(bucket)
     const putReady = Promise.withResolvers<void>()
     const putPending = Promise.withResolvers<void>()
@@ -388,7 +388,7 @@ describe('audio API', () => {
     const keys = Array.from({ length: 305 }, (_, i) => ({ key: `garbage/${String(i).padStart(3, '0')}` }))
     await createDb(env.D1)
       .insert(audioGarbage)
-      .values([...keys, { key: `music/${id}/audio` }])
+      .values([...keys, { key: `${id}/audio` }])
     await cleanupAudio(createDb(env.D1), env.R2)
     expect(await createDb(env.D1).select().from(audioGarbage)).toEqual([])
     expect(bucket.objects.size).toBe(3)
@@ -429,8 +429,8 @@ describe('audio API', () => {
     expect((await request(`/uploads/${next.id}/lyrics`, 'PUT', 'new lyrics')).status).toBe(200)
     expect((await request(`/uploads/${next.id}/commit`, 'POST')).status).toBe(200)
     const [row] = await createDb(env.D1).select().from(audioTable)
-    expect(row.audioKey).toBe(`music/${first}/audio`)
-    expect(row.coverKey).toBe(`music/${first}/cover`)
+    expect(row.audioKey).toBe(`${first}/audio`)
+    expect(row.coverKey).toBe(`${first}/cover`)
     expect(row.lyricsHash).toBe(hash('new lyrics'))
     await cleanupAudio(createDb(env.D1), env.R2)
     expect(bucket.objects.size).toBe(3)
@@ -449,7 +449,7 @@ describe('audio API', () => {
   test('missing R2 objects are uploaded again even when their saved hashes match', async () => {
     const f = await folder()
     const first = await publishHashed(f.id)
-    bucket.objects.delete(`music/${first}/audio`)
+    bucket.objects.delete(`${first}/audio`)
     const next = await hashedPlan(f.id)
     expect(next.requiredFiles).toEqual(['audio'])
   })
@@ -466,8 +466,8 @@ describe('audio API', () => {
     const pending = await hashedPlan(f.id, {}, { ...fileContents, lyrics: 'pending lyrics' })
     await publishHashed(f.id, { audio: 'other', lyrics: 'other lyrics', cover: 'other cover' })
     await cleanupAudio(createDb(env.D1), env.R2)
-    expect(bucket.objects.has(`music/${first}/audio`)).toBe(true)
-    expect(bucket.objects.has(`music/${first}/cover`)).toBe(true)
+    expect(bucket.objects.has(`${first}/audio`)).toBe(true)
+    expect(bucket.objects.has(`${first}/cover`)).toBe(true)
     await request(`/uploads/${pending.id}/lyrics`, 'PUT', 'pending lyrics')
     expect((await request(`/uploads/${pending.id}/commit`, 'POST')).status).toBe(200)
     await cleanupAudio(createDb(env.D1), env.R2)
@@ -644,8 +644,8 @@ describe('audio API', () => {
     expect((await request(`/audios/${oldRow.id}/lyrics`)).status).toBe(404)
     expect((await request(`/audios/${oldRow.id}/cover`)).status).toBe(404)
     await cleanupAudio(createDb(env.D1), env.R2)
-    expect(bucket.objects.has(`music/${old}/audio`)).toBe(false)
-    expect(bucket.objects.has(`music/${next}/audio`)).toBe(true)
+    expect(bucket.objects.has(`${old}/audio`)).toBe(false)
+    expect(bucket.objects.has(`${next}/audio`)).toBe(true)
   })
   test('concurrent commits publish once without queuing the live version for deletion', async () => {
     const f = await folder()
@@ -661,7 +661,7 @@ describe('audio API', () => {
     expect(rows[0].version).toBe(id)
     expect(await createDb(env.D1).select().from(audioGarbage)).toEqual([])
     await cleanupAudio(createDb(env.D1), env.R2)
-    expect(bucket.objects.has(`music/${id}/audio`)).toBe(true)
+    expect(bucket.objects.has(`${id}/audio`)).toBe(true)
   })
   test('failed R2 deletion retains the cleanup queue for retry', async () => {
     const f = await folder()
@@ -680,8 +680,8 @@ describe('audio API', () => {
     bucket.delete = deleteObject
     await cleanupAudio(createDb(env.D1), env.R2)
     expect(await createDb(env.D1).select().from(audioGarbage)).toEqual([])
-    expect(bucket.objects.has(`music/${old}/audio`)).toBe(false)
-    expect(bucket.objects.has(`music/${next}/audio`)).toBe(true)
+    expect(bucket.objects.has(`${old}/audio`)).toBe(false)
+    expect(bucket.objects.has(`${next}/audio`)).toBe(true)
   })
   test('rejects invalid paths, oversized files, changed local size and immutable upload overwrite', async () => {
     const f = await folder()
@@ -713,8 +713,8 @@ describe('audio API', () => {
     await files(abandoned)
     await createDb(env.D1).update(audioUploads).set({ createdAt: 0 })
     await cleanupAudio(createDb(env.D1), env.R2)
-    expect(bucket.objects.has(`music/${abandoned}/audio`)).toBe(false)
-    expect(bucket.objects.has(`music/${live}/audio`)).toBe(true)
+    expect(bucket.objects.has(`${abandoned}/audio`)).toBe(false)
+    expect(bucket.objects.has(`${live}/audio`)).toBe(true)
     expect(await (await request(`/audios/${(await audios(f.id))[0].id}/audio`)).text()).toBe('music')
   })
 })

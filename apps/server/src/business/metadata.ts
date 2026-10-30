@@ -43,7 +43,5 @@ export const uploadMetadata = audioMetadata
   )
 export const uploadLimits = { audio: 50 * 1024 * 1024, lyrics: 1024 * 1024, cover: 10 * 1024 * 1024 }
 export type FileKind = keyof typeof uploadLimits
-const objectKeyPrefix = 'music/'
-export const objectKey = (id: string, kind: FileKind) => `${objectKeyPrefix}${id}/${kind}`
-export const objectKeySql = (id: SQLWrapper, kind: FileKind) =>
-  sql<string>`${objectKeyPrefix} || ${id} || ${`/${kind}`}`
+export const objectKey = (id: string, kind: FileKind) => `${id}/${kind}`
+export const objectKeySql = (id: SQLWrapper, kind: FileKind) => sql<string>`${id} || ${`/${kind}`}`
