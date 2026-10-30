@@ -19,5 +19,15 @@ bunx wrangler d1 migrations apply D1 --local
 ### 执行远程迁移
 
 ```bash
+bunx wrangler login
+```
+
+```bash
 bunx wrangler d1 migrations apply D1 --remote
+```
+
+### 部署
+
+```bash
+bunx wrangler deploy
 ```
