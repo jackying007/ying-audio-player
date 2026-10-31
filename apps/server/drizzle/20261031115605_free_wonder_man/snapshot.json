@@ -1,7 +1,7 @@
 {
   "version": "7",
   "dialect": "sqlite",
-  "id": "30e1e9ea-11f2-4a8c-af9b-bcdd78d21c6d",
+  "id": "2e2df8b3-0fe2-4bd5-b8f9-feb66f0ed9a0",
   "prevIds": [
     "00000000-0000-0000-0000-000000000000"
   ],
@@ -68,6 +68,26 @@
       "autoincrement": false,
       "default": null,
       "generated": null,
+      "name": "requiredFiles",
+      "entityType": "columns",
+      "table": "audioUploads"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "'[]'",
+      "generated": null,
+      "name": "uploadedFiles",
+      "entityType": "columns",
+      "table": "audioUploads"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
       "name": "metadata",
       "entityType": "columns",
       "table": "audioUploads"
@@ -104,11 +124,11 @@
     },
     {
       "type": "text",
-      "notNull": false,
+      "notNull": true,
       "autoincrement": false,
       "default": null,
       "generated": null,
-      "name": "audioHash",
+      "name": "hash",
       "entityType": "columns",
       "table": "audioUploads"
     },
@@ -119,16 +139,6 @@
       "default": null,
       "generated": null,
       "name": "lyricsHash",
-      "entityType": "columns",
-      "table": "audioUploads"
-    },
-    {
-      "type": "text",
-      "notNull": false,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "coverHash",
       "entityType": "columns",
       "table": "audioUploads"
     },
@@ -193,12 +203,12 @@
       "table": "audios"
     },
     {
-      "type": "text",
+      "type": "integer",
       "notNull": true,
       "autoincrement": false,
-      "default": null,
+      "default": "0",
       "generated": null,
-      "name": "version",
+      "name": "updating",
       "entityType": "columns",
       "table": "audios"
     },
@@ -234,11 +244,11 @@
     },
     {
       "type": "text",
-      "notNull": false,
+      "notNull": true,
       "autoincrement": false,
       "default": null,
       "generated": null,
-      "name": "audioHash",
+      "name": "hash",
       "entityType": "columns",
       "table": "audios"
     },
@@ -249,16 +259,6 @@
       "default": null,
       "generated": null,
       "name": "lyricsHash",
-      "entityType": "columns",
-      "table": "audios"
-    },
-    {
-      "type": "text",
-      "notNull": false,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "coverHash",
       "entityType": "columns",
       "table": "audios"
     },
@@ -355,8 +355,26 @@
           "isExpression": false
         },
         {
-          "value": "filename",
+          "value": "substr(\"filename\", 1, length(\"filename\") - 4)",
+          "isExpression": true
+        }
+      ],
+      "isUnique": true,
+      "where": "\"audioUploads\".\"committed\" = 0",
+      "origin": "manual",
+      "name": "pendingSongUpload",
+      "entityType": "indexes",
+      "table": "audioUploads"
+    },
+    {
+      "columns": [
+        {
+          "value": "folderId",
           "isExpression": false
+        },
+        {
+          "value": "substr(\"filename\", 1, length(\"filename\") - 4)",
+          "isExpression": true
         }
       ],
       "isUnique": true,

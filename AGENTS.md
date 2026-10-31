@@ -21,7 +21,7 @@ Bun workspace + Turborepo，包含 Tauri 桌面/Android 播放器和 Cloudflare 
 - 服务端 HTTP 请求统一使用 `@jying/http`，业务调用从 `@/api` 导入。当前网络接口全部集中在 `apps/app/src/api/business/network.ts`，统一导出 `networkApi`；新增网络接口继续放在此文件。
 - 沿用现有工厂格式：业务文件默认导出接收 `HttpRequest` 的函数，返回接口方法对象；`api/index.ts` 通过动态导入加载工厂并注入 `http-client.ts` 的共享 `http` 实例。请求与响应类型统一放在 `api/types.ts`。
 - 接口方法按行为命名，如 `listFolders`、`createFolder`、`createUpload`、`commitUpload`；媒体下载使用 `getAudio`、`getLyrics`、`getCover`。
-- 业务方法使用相对 API 路径（如 `/folders`）；`http-client.ts` 统一从当前 App 设置读取服务端地址和密钥，拼接服务端地址及 `/api`，通过 `query.authToken` 传递原始密钥鉴权（不带 Bearer 前缀）。收到现有歌曲条目的完整媒体 URL 时，先通过 `mediaPath` 校验属于当前服务端并提取相对路径；共享请求钩子将 URL 已有查询参数合并到 `query`，保留版本参数并以当前设置覆盖 `authToken`。
+- 业务方法使用相对 API 路径（如 `/folders`）；`http-client.ts` 统一从当前 App 设置读取服务端地址和密钥，拼接服务端地址及 `/api`，通过 `query.authToken` 传递原始密钥鉴权（不带 Bearer 前缀）。收到现有歌曲条目的完整媒体 URL 时，先通过 `mediaPath` 校验属于当前服务端并提取相对路径；共享请求钩子将 URL 已有查询参数合并到 `query`，保留 hash 参数并以当前设置覆盖 `authToken`。
 - JSON 请求体使用库的 `data`，查询参数使用 `query`，二进制上传使用 `body`。媒体方法通过 `responseType` 直接返回音频 `ArrayBuffer`、歌词文本或封面 `Blob`，调用方直接使用解析后的数据。
 - 服务端错误统一为文本；`afterError` 使用 `Response.text()` 读取错误消息，空内容使用带状态码的默认提示，构造保留 `status`、`statusText` 的 `HttpError`。业务按需检查 `HttpError.status`。
 - `signal` 仅在调用方实际需要取消请求时添加并透传，如播放、封面加载和同步；`listFolders`、`listAudios` 保持无 `signal` 参数。连接级取消统一由 `http-client.ts` 维护，与调用方信号合并；地址或密钥变化时取消旧连接请求。
@@ -74,22 +74,23 @@ Tauri 自动启动 Vite 并打开窗口。Vite 固定使用 `http://localhost:14
 - 只扫描目录直接子文件中的 MP3，扩展名不区分大小写；不递归。同名 LRC 为歌词，封面取自音频内嵌图片。
 - 本地 SQLite 为**可执行文件同目录**的 `localAudio.sqlite3`，开发时通常在 `apps/app/src-tauri/target/debug`；目录需可写，移动程序或清理构建目录会影响索引。
 - 查询、重复导入和同步都使用已有索引，不隐式扫描；文件增删或标签变化后先手动刷新。刷新事务保留仍存在歌曲的 ID，失败保留旧索引；元数据读取失败仍可入库并显示警告。
-- 同步按文件夹名称精确合并、按「文件夹 + 完整文件名」匹配歌曲；同名覆盖，云端独有歌曲保留。上传音频、歌词、封面和本地歌曲元数据，不提交本地数据库 ID、绝对路径、`scanError` 或整个 SQLite 文件。
-- 分别计算音频、歌词、封面的 SHA-256；创建上传时由服务端返回 `requiredFiles` 和 `unchanged`。只传变化、hash 缺失或云端缺失的文件；仅元数据变化时复用对象，完全一致时跳过。R2 校验实际上传内容。
+- 同步按文件夹名称精确合并、按「文件夹 + 去掉末尾 .mp3 的文件名」匹配歌曲（扩展名忽略大小写）；同名覆盖，云端独有歌曲保留。上传音频、歌词、封面和本地歌曲元数据，不提交本地数据库 ID、绝对路径、`scanError` 或整个 SQLite 文件。
+- 仅保存音频 `hash` 与可空的 `lyricsHash`，分别为文件原始内容的 SHA-256；不保存封面 hash。封面取自音频内嵌图片，随音频 hash 更新。创建上传返回 `requiredFiles` 和 `unchanged`；音频、歌词分别去重并补传缺失文件，完全一致时跳过；仅元数据变化复用对象。上传及提交时核对 R2 实际音频、歌词摘要。
 - 同步逐首执行并显示成功、跳过及失败数量；普通文件失败继续，鉴权失败停止。同一文件夹同步期间禁用重复同步和刷新。索引声明有歌词却读取失败时，该歌曲同步失败；无歌词或封面时覆盖会清除旧关联。
 - 网络播放通过查询参数 `authToken` 携带密钥下载完整音频，再转为 Blob 播放；封面按需加载，歌词或封面失败不阻止音频。音频上限 50 MiB、歌词 1 MiB、封面 10 MiB。
-- 网络歌曲按「内存 → 磁盘 → 网络」读取。音频和所需歌词下载完毕后，先生成 Blob 开始播放，再通过二进制 IPC 在后台保存到**可执行文件同目录**的 `network/<歌曲文件夹名>/<原始文件名>`，同目录保存同名 LRC；保留中文、空格、扩展名大小写，仅处理文件系统非法名称。开发时通常位于 `apps/app/src-tauri/target/debug/network`，目录需可写。版本、连接摘要及完成标记单独保存在程序旁的 `.network-cache` 中，不在歌曲目录添加 ID、版本或摘要层级；连接摘要不含明文密钥，不同连接的同路径文件覆盖保存，但只匹配当前连接的缓存。
-- 磁盘缓存按列表已有 `version` 匹配，不额外请求版本。命中时不请求音频与歌词；文件夹、歌曲列表和封面仍联网，暂不支持完整离线浏览。新版本覆盖原文件，无歌词时删除旧 LRC。缓存使用临时文件和完成标记；文件缺失、长度不符或读取失败时重新下载。无歌词歌曲仅保存音频；歌词下载失败时播放音频并警告，不发布完整缓存；保存失败不阻止本次播放。可手动删除 `network` 和 `.network-cache` 清理缓存。
-- 本地和网络共用暂停、上一首/下一首、顺序/随机/单曲循环、进度、音量及歌词。保留请求序号防竞态、来源隔离、缓存失效和 Blob URL 回收；覆盖当前歌曲后同步更新当前条目及队列版本。
+- 网络歌曲按「内存 → 磁盘 → 网络」读取。音频和所需歌词下载完毕后，先生成 Blob 开始播放，再通过二进制 IPC 在后台保存到**可执行文件同目录**的 `network/<歌曲文件夹名>/<原始文件名>`，同目录保存同名 LRC；保留中文、空格、扩展名大小写，仅处理文件系统非法名称。开发时通常位于 `apps/app/src-tauri/target/debug/network`，目录需可写。音频 hash 与歌词 hash、连接摘要及完成标记单独保存在程序旁的 `.network-cache` 中，不在歌曲目录添加 ID、版本或摘要层级；连接摘要不含明文密钥，不同连接的同路径文件覆盖保存，但只匹配当前连接的缓存。
+- 磁盘缓存按列表已有音频 hash 与歌词 hash 及歌词存在状态匹配，不额外请求标识；旧缓存标记按未命中处理。命中时不请求音频与歌词；文件夹、歌曲列表和封面仍联网，暂不支持完整离线浏览。新版本覆盖原文件，无歌词时删除旧 LRC。缓存使用临时文件和完成标记；文件缺失、长度不符或读取失败时重新下载。无歌词歌曲仅保存音频；歌词下载失败时播放音频并警告，不发布完整缓存；保存失败不阻止本次播放。可手动删除 `network` 和 `.network-cache` 清理缓存。
+- 本地和网络共用暂停、上一首/下一首、顺序/随机/单曲循环、进度、音量及歌词。保留请求序号防竞态、来源隔离、缓存失效和 Blob URL 回收；覆盖当前歌曲后同步更新当前条目及队列 hash。
 - 地址和密钥保存在 localStorage 的 `ying-audio-player-network`；音量和模式保存在 `ying-audio-player-settings`。修改连接配置时终止旧网络请求、停止网络播放并释放网络缓存，本地播放不受影响。
 
 ## 服务端数据与接口
 
+- 手动清理：`POST /api/admin/cleanup?authToken=<密钥>`，沿用现有 query 鉴权，无请求体，复用定时任务的 `cleanupAudio`，等待本轮完成后返回 `{ ok: true }`；失败返回文本错误，未删除成功的资源保留队列重试。每轮最多处理 100 条超过 24 小时的上传记录，保护已发布歌曲及未过期上传引用的对象，不代表清空全部积压。部署后可在 PowerShell 执行 `Invoke-RestMethod -Method Post -Uri ("https://<Worker域名>/api/admin/cleanup?authToken=" + [Uri]::EscapeDataString($env:API_TOKEN))`，先在当前终端设置实际 `API_TOKEN` 环境变量；线上不提供本地调试用的 `/__scheduled`。
 - API 基础路径为 `/api`：`GET/POST /folders`、`DELETE /folders/:id`、`GET /folders/:id/audios`、`POST /folders/:id/uploads`、`PUT /uploads/:id/{audio,lyrics,cover}`、`POST /uploads/:id/commit`、`GET /audios/:id/{audio,lyrics,cover}`。文件夹删除幂等返回 `{ ok: true }`，D1 原子登记全部资源清理并删除文件夹、歌曲及上传记录，随后立即后台尝试清理 R2；失败保留队列，由每小时任务重试。
-- D1/R2 绑定名为 `D1`、`R2`；schema 位于 `apps/server/src/db/schema/audio.ts`，歌曲按 `folderId + filename` 唯一匹配。
-- `folders` 保存文件夹；`audios` 保存已发布的元数据、R2 引用和文件 hash。`version` 是发布时的上传 ID，用于 URL 缓存区分和拒绝旧版本请求。
-- `audioUploads` 保存待发布元数据、hash 和复用/新上传的对象引用；其 hash 用于本次上传校验，`audios` 的 hash 用于下次比较。两者分别代表待发布和已发布状态，避免失败上传污染旧版本。
-- D1 与 R2 不共享事务：文件齐全后通过 Drizzle `db.batch` 原子更新歌曲、旧文件清理队列及提交标记。保留幂等、过期和并发检查；失败保持旧版本可用。
+- D1/R2 绑定名为 `D1`、`R2`；schema 位于 `apps/server/src/db/schema/audio.ts`，歌曲通过表达式唯一索引按「folderId + filename 去掉末尾 .mp3」匹配，保留其余大小写，不额外存储歌曲匹配名称。
+- `folders` 保存文件夹；`audios` 保存已发布的元数据、R2 引用和音频 hash 与歌词 hash。R2 key 为 `文件夹名/去扩展名文件名/audio|lyrics|cover`；不保留历史对象。音频/封面 URL 使用音频 `hash`，歌词 URL 使用 `lyricsHash` 作为 `hash` 查询参数，区分缓存并拒绝过期请求，不再提供 `version`。
+- `audioUploads` 保存待发布元数据、hash 和复用/新上传的对象引用；其 hash 用于本次上传校验，`audios` 的 hash 用于下次比较。上传 hash 必填；同曲最多一个未过期待提交会话。上传记录保存必需文件及完成状态，旧对象存在不能代替本次上传完成。
+- D1 与 R2 不共享事务：文件齐全后通过 Drizzle `db.batch` 原子更新歌曲、旧文件清理队列及提交标记。保留幂等、过期和并发检查；固定路径覆盖前设置 `updating` 并阻止媒体读取，提交后恢复；失败不回滚旧文件，释放失败会话以便立即重试；失败或过期后的下一次同步强制重传。D1 限制正常同曲并发，删除/过期和在途请求的极端交错仍可能冲突。
 - `audioGarbage` 仅保存待删除 R2 key。每小时清理替换的旧文件及超过 24 小时的上传记录/暂存对象；删除前检查当前歌曲和未过期待提交上传的引用，删除失败保留队列重试。R2 桶保持私有。
 - 数据库访问由 `src/db/middleware.ts` 配置的 Drizzle 实例提供；接口通过 `c.get('db')` 获取，定时任务通过 `createDb` 初始化。
 - `business/base.validator.ts` 提供路由参数校验，数值 ID 为正安全整数，上传 ID 为 UUID；`app.error.handler.ts` 统一处理 HTTP 异常。
@@ -100,14 +101,14 @@ Tauri 自动启动 Vite 并打开窗口。Vite 固定使用 `http://localhost:14
 
 - 每次执行完计划模式的计划后，仅进行代码测试，不启动 App 的 E2E 测试，不自动提交代码。
 
-| 目的 | 工作目录 | 命令 |
-| --- | --- | --- |
-| workspace 类型检查 / lint / 构建 | 根目录 | `bun run check` / `bun run lint` / `bun run build` |
-| 播放队列、网络同步及播放测试 | 根目录 | `bun test apps/app/tests` |
-| 前端测试类型检查 | 根目录 | `bunx tsc --noEmit -p apps/app/tests/tsconfig.json` |
-| 服务端测试及其类型检查 | `apps/server` | `bun run test` / `bun run test:check` |
-| Rust 扫描/索引测试 | `apps/app/src-tauri` | `cargo test` |
-| Windows 桌面绿色版 | `apps/app` | `bun run windows:build` |
+| 目的                             | 工作目录             | 命令                                                |
+| -------------------------------- | -------------------- | --------------------------------------------------- |
+| workspace 类型检查 / lint / 构建 | 根目录               | `bun run check` / `bun run lint` / `bun run build`  |
+| 播放队列、网络同步及播放测试     | 根目录               | `bun test apps/app/tests`                           |
+| 前端测试类型检查                 | 根目录               | `bunx tsc --noEmit -p apps/app/tests/tsconfig.json` |
+| 服务端测试及其类型检查           | `apps/server`        | `bun run test` / `bun run test:check`               |
+| Rust 扫描/索引测试               | `apps/app/src-tauri` | `cargo test`                                        |
+| Windows 桌面绿色版               | `apps/app`           | `bun run windows:build`                             |
 
 普通前端 `check` 不含测试；Rust 检查不由 Turbo 执行；根目录 `build` 不打桌面包或部署 Worker。缺少 `.git` 导致 Turbo 失败时，可用 `bun run --filter '*' check`（或 `lint` / `build`）。
 

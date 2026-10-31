@@ -22,7 +22,8 @@ export enum PlayState {
 export type AudioInfo = {
   source?: 'local' | 'network'
   filename?: string
-  version?: string
+  hash?: string
+  lyricsHash?: string | null
   folderName?: string
   coverLink?: string
   id: number
@@ -102,6 +103,7 @@ type CachedData = {
   objectUrl: string
   blob: Blob
   lrc?: string
+  lyricsIdentity?: string
   folderId: number
   source: 'local' | 'network'
   warning?: string
@@ -254,6 +256,18 @@ const startAudio = async (audioInfo: AudioInfo, playlist?: Pick<AudioStore, 'aud
   })
   try {
     let cached = cachedMap.get(audioInfo.link)
+    if (cached && audioInfo.source === 'network' && cached.lyricsIdentity !== audioInfo.lrcLink) {
+      cached = {
+        ...cached,
+        lrc: undefined,
+        lyricsIdentity: audioInfo.lrcLink,
+        cacheKey: undefined,
+        saved: false,
+        saving: undefined,
+        warning: '歌词已变化'
+      }
+      cachedMap.set(audioInfo.link, cached)
+    }
     if (cached?.warning && audioInfo.source === 'network') {
       try {
         cached.cacheKey ??= await networkCacheKey(audioInfo)
@@ -303,6 +317,7 @@ const startAudio = async (audioInfo: AudioInfo, playlist?: Pick<AudioStore, 'aud
         objectUrl: URL.createObjectURL(blob),
         blob,
         lrc,
+        lyricsIdentity: audioInfo.lrcLink,
         folderId: audioInfo.folderId,
         source: remote ? 'network' : 'local',
         warning,

@@ -9,9 +9,9 @@ export function toNetworkAudio(row: NetworkAudio): AudioInfo {
     source: 'network',
     scanError: null,
     hasCover: !!row.coverMime,
-    coverLink: row.coverMime ? `${base}/cover?v=${row.version}` : undefined,
-    link: `${base}/audio?v=${row.version}`,
-    lrcLink: `${base}/lyrics?v=${row.version}`,
+    coverLink: row.coverMime ? `${base}/cover?hash=${row.hash}` : undefined,
+    link: `${base}/audio?hash=${row.hash}`,
+    lrcLink: `${base}/lyrics?hash=${row.lyricsHash}`,
     type: 'audio/mpeg'
   }
 }

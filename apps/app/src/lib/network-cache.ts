@@ -11,7 +11,8 @@ export type NetworkCacheKey = {
   folderName: string
   audioId: number
   filename: string
-  version: string
+  hash: string
+  lyricsHash: string | null
   hasLyrics: boolean
 }
 
@@ -20,7 +21,7 @@ type CachedFiles = { audioPath: string; lyricsPath?: string | null }
 export async function networkCacheKey(audio: AudioInfo): Promise<NetworkCacheKey> {
   // Capture credentials before hashing; a configuration change must not relabel an old download.
   const { serverUrl, token } = useNetworkSettings.getState()
-  if (!audio.filename || !audio.version || !audio.folderName || !audio.link.startsWith(`${serverUrl}/api/`)) {
+  if (!audio.filename || !audio.hash || !audio.folderName || !audio.link.startsWith(`${serverUrl}/api/`)) {
     throw new Error('网络歌曲缓存信息不完整，请刷新网络列表')
   }
   const connection = await fileHash(new TextEncoder().encode(JSON.stringify([serverUrl, token])))
@@ -30,7 +31,8 @@ export async function networkCacheKey(audio: AudioInfo): Promise<NetworkCacheKey
     folderName: audio.folderName,
     audioId: audio.id,
     filename: audio.filename,
-    version: audio.version,
+    hash: audio.hash!,
+    lyricsHash: audio.hasLyrics ? (audio.lyricsHash ?? null) : null,
     hasLyrics: audio.hasLyrics
   }
 }

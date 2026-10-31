@@ -32,21 +32,24 @@ const metadata = {
   coverMime: 'image/jpeg'
 }
 const hash = (value: string) => new Bun.CryptoHasher('sha256').update(value).digest('hex')
-const hashes = { audio: hash('music'), lyrics: hash('[00:01]lyrics'), cover: hash('image') }
-const upload = await request(`/folders/${folder.id}/uploads`, 'POST', { ...metadata, hashes })
+const songHash = hash('music')
+const lyricsHash = hash('[00:01]lyrics')
+const upload = await request(`/folders/${folder.id}/uploads`, 'POST', { ...metadata, hash: songHash, lyricsHash })
 await request(`/uploads/${upload.id}/audio`, 'PUT', 'music')
 await request(`/uploads/${upload.id}/lyrics`, 'PUT', '[00:01]lyrics')
 await request(`/uploads/${upload.id}/cover`, 'PUT', 'image')
 const duplicate = await fetch(authenticatedUrl(`/uploads/${upload.id}/audio`), { method: 'PUT', body: 'music' })
-if (duplicate.status !== 409) throw new Error('Staged objects must be immutable')
+if (duplicate.status !== 409) throw new Error('Completed file writes must reject duplicate PUTs')
 await request(`/uploads/${upload.id}/commit`, 'POST')
-const same = await request(`/folders/${folder.id}/uploads`, 'POST', { ...metadata, hashes })
+const same = await request(`/folders/${folder.id}/uploads`, 'POST', { ...metadata, hash: songHash, lyricsHash })
 if (!same.unchanged || same.requiredFiles.length) throw new Error('Unchanged song was not skipped')
 const lyricsUpdate = await request(`/folders/${folder.id}/uploads`, 'POST', {
   ...metadata,
-  hashes: { ...hashes, lyrics: hash('updated lyrics') }
+  hash: songHash,
+  lyricsHash: hash('updated lyrics')
 })
-if (JSON.stringify(lyricsUpdate.requiredFiles) !== '["lyrics"]') throw new Error('Unchanged files were not reused')
+if (JSON.stringify(lyricsUpdate.requiredFiles) !== '["lyrics"]')
+  throw new Error('Lyrics-only update must reuse audio and cover')
 await request(`/uploads/${lyricsUpdate.id}/lyrics`, 'PUT', 'updated lyrics')
 await request(`/uploads/${lyricsUpdate.id}/commit`, 'POST')
 const bad = await request(`/folders/${folder.id}/uploads`, 'POST', {
@@ -54,7 +57,8 @@ const bad = await request(`/folders/${folder.id}/uploads`, 'POST', {
   filename: 'invalid.mp3',
   hasLyrics: false,
   coverMime: null,
-  hashes: { audio: hashes.audio, lyrics: null, cover: null }
+  hash: songHash,
+  lyricsHash: null
 })
 const badChecksum = await fetch(authenticatedUrl(`/uploads/${bad.id}/audio`), { method: 'PUT', body: 'other' })
 if (badChecksum.status !== 400)
@@ -68,9 +72,10 @@ const next = await request(`/folders/${folder.id}/uploads`, 'POST', {
   ...metadata,
   hasLyrics: false,
   coverMime: null,
-  hashes: { audio: hashes.audio, lyrics: null, cover: null }
+  hash: songHash,
+  lyricsHash: null
 })
-if (next.requiredFiles.length) throw new Error('Metadata-only change should reuse the audio')
+if (next.requiredFiles.length) throw new Error('Removing optional files must reuse audio')
 await request(`/uploads/${next.id}/commit`, 'POST')
 const updated = await request(`/folders/${folder.id}/audios`)
 if (updated.length !== 1 || updated[0].hasLyrics || updated[0].coverMime)
@@ -78,5 +83,5 @@ if (updated.length !== 1 || updated[0].hasLyrics || updated[0].coverMime)
 const cleanup = await fetch(`${origin}/__scheduled`)
 if (!cleanup.ok) throw new Error(`Scheduled cleanup failed: ${await cleanup.text()}`)
 console.log(
-  'Worker/D1/R2 smoke passed: hashes, skip, partial upload, checksum verification, replacement, idempotency, cleanup.'
+  'Worker/D1/R2 smoke passed: audio/lyrics hashes, skip, incremental upload, checksum verification, replacement, idempotency, cleanup.'
 )

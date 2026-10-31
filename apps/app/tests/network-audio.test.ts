@@ -1,3 +1,4 @@
+import { fileHash } from '../src/lib/file-hash'
 import { afterAll, afterEach, beforeEach, expect, mock, spyOn, test } from 'bun:test'
 import type { NetworkCacheKey } from '../src/lib/network-cache'
 
@@ -165,7 +166,8 @@ const row = {
   fileSize: 5,
   hasLyrics: false,
   coverMime: null,
-  version: 'v1'
+  hash: 'a'.repeat(64),
+  lyricsHash: 'b'.repeat(64)
 }
 const local: AudioInfo = {
   ...row,
@@ -264,7 +266,7 @@ test('play all network songs replaces the queue in folder and song order and sta
   expect(player.currentAudioInfo).toBe(player.audioList[0])
   expect(player.playState).toBe(PlayState.Playing)
   expect(requests.filter(url => url.includes('/api/audios/'))).toEqual([
-    'http://localhost:8787/api/audios/3/audio?v=v1&authToken=secret'
+    'http://localhost:8787/api/audios/3/audio?hash=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&authToken=secret'
   ])
   playNextAudio()
   expect(useAudioStore.getState().currentAudioInfo?.id).toBe(2)
@@ -895,7 +897,12 @@ test('persisted audio and lyrics play without requests after the memory cache is
   await playAndSave(audio)
   expect(diskEntries.size).toBe(1)
   const [identity] = diskEntries.keys()
-  expect(JSON.parse(identity)).toMatchObject({ folderName: '我的音乐', filename: 'song.mp3', version: 'v1' })
+  expect(JSON.parse(identity)).toMatchObject({
+    folderName: '我的音乐',
+    filename: 'song.mp3',
+    hash: 'a'.repeat(64),
+    lyricsHash: 'b'.repeat(64)
+  })
   expect(identity).not.toContain('secret')
   cachedMap.clear()
   const requests: string[] = []
@@ -909,7 +916,7 @@ test('persisted audio and lyrics play without requests after the memory cache is
   expect(useAudioStore.getState().warning).toBeUndefined()
 })
 
-test('songs without lyrics persist and play locally, while a new version downloads again', async () => {
+test('songs without lyrics persist and play locally, while a new hash downloads again', async () => {
   await playAndSave(toNetworkAudio(row))
   expect([...diskEntries.values()][0].lyricsPath).toBeNull()
   cachedMap.clear()
@@ -920,7 +927,7 @@ test('songs without lyrics persist and play locally, while a new version downloa
   }
   expect(await playAndSave(toNetworkAudio(row))).toBe(true)
   expect(requests).toBe(0)
-  await playAndSave(toNetworkAudio({ ...row, version: 'v2' }))
+  await playAndSave(toNetworkAudio({ ...row, hash: 'd'.repeat(64), lyricsHash: 'b'.repeat(64) }))
   expect(requests).toBe(1)
 })
 
@@ -1041,7 +1048,8 @@ test('network folder names are carried into the playback metadata', async () => 
   expect(useNetworkAudioStore.getState().entries['1'].audios?.[0]).toMatchObject({
     folderName: '我的音乐',
     filename: 'song.mp3',
-    version: 'v1'
+    hash: 'a'.repeat(64),
+    lyricsHash: 'b'.repeat(64)
   })
 })
 
@@ -1076,27 +1084,36 @@ test('old folder requests cannot overwrite a new connection', async () => {
   await old
   expect(useNetworkAudioStore.getState().entries['1'].audios?.[0].name).toBe('new connection')
 })
-test('replacing the current network song keeps repeat-one and next on the refreshed version', async () => {
+test('replacing the current network song keeps repeat-one and next on the refreshed hash', async () => {
   const rows = [row, { ...row, id: 2, name: 'second' }, { ...row, id: 3, name: 'third' }]
   const playlist = rows.map(toNetworkAudio)
   await playAndSave(playlist[1], { audioList: playlist, playlistFolderId: 1 })
   invalidateAudioCache(1, 'network')
   const downloads: string[] = []
   fetchHandler = async url => {
-    if (url.includes('/folders/')) return json(rows.map(audio => ({ ...audio, version: 'v2' })))
+    if (url.includes('/folders/'))
+      return json(
+        rows.map(audio => ({
+          ...audio,
+          hash: 'd'.repeat(64),
+          lyricsHash: 'b'.repeat(64)
+        }))
+      )
     downloads.push(url)
     return new Response('new music')
   }
   await loadNetworkAudios('1')
-  expect(useAudioStore.getState().currentAudioInfo?.link).toContain('/2/audio?v=v2')
+  expect(useAudioStore.getState().currentAudioInfo?.link).toContain(
+    '/2/audio?hash=dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd'
+  )
   useAppStore.setState({ playMode: 'repeat-one' })
   TestAudio.instance.listeners.get('ended')?.()
   await waitForPlayback(() => downloads.length === 1)
-  expect(downloads[0]).toContain('/2/audio?v=v2')
+  expect(downloads[0]).toContain('/2/audio?hash=dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd')
   useAppStore.setState({ playMode: 'sequence' })
   playNextAudio()
   await waitForPlayback(() => downloads.length === 2)
-  expect(downloads[1]).toContain('/3/audio?v=v2')
+  expect(downloads[1]).toContain('/3/audio?hash=dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd')
 })
 
 async function waitForPlayback(downloaded: () => boolean) {
@@ -1126,7 +1143,9 @@ test('local lists and playback do not request or wait for covers', async () => {
 test('network audio exposes cover availability without embedding cover data', () => {
   const audio = toNetworkAudio({ ...row, coverMime: 'image/png' })
   expect(audio.hasCover).toBe(true)
-  expect(audio.coverLink).toBe('http://localhost:8787/api/audios/1/cover?v=v1')
+  expect(audio.coverLink).toBe(
+    'http://localhost:8787/api/audios/1/cover?hash=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+  )
   expect(audio).not.toHaveProperty('cover')
   expect(toNetworkAudio(row).hasCover).toBe(false)
 })
@@ -1156,8 +1175,7 @@ test('document URI playback and sync use indexed IDs and preserve the original f
     if (new URL(url).pathname.endsWith('/uploads')) {
       const data = JSON.parse(String(init.body))
       expect(data.filename).toBe('中文 原版.MP3')
-      expect(data.hashes.audio).toBe(new Bun.CryptoHasher('sha256').update(music).digest('hex'))
-      expect(data.hashes.lyrics).toBe(new Bun.CryptoHasher('sha256').update(lyrics).digest('hex'))
+      expect(data.hash).toBe(await fileHash(music))
       expect(JSON.stringify(data)).not.toContain('content://')
       return json({ id: null, unchanged: true, requiredFiles: [] })
     }
@@ -1223,7 +1241,7 @@ test('sync skips unchanged songs and sends only files requested by the server', 
     if (new URL(url).pathname.endsWith('/folders') && init.method === 'POST') return json({ id: 1, name: 'music' })
     if (new URL(url).pathname.endsWith('/uploads')) {
       const body = JSON.parse(String(init.body))
-      expect(body.hashes.audio).toBe(new Bun.CryptoHasher('sha256').update('music').digest('hex'))
+      expect(body.hash).toBe(await fileHash(new TextEncoder().encode('music')))
       plans++
       return plans === 1
         ? json({ id: null, unchanged: true, requiredFiles: [] })
@@ -1269,7 +1287,7 @@ test('sync reads indexed covers separately, hashes them and uploads only when re
     if (new URL(url).pathname.endsWith('/uploads')) {
       const data = JSON.parse(String(init.body))
       expect(data.coverMime).toBe('image/png')
-      expect(data.hashes.cover).toBe(new Bun.CryptoHasher('sha256').update(coverData).digest('hex'))
+      expect(data.hash).toBe(await fileHash(new TextEncoder().encode('music')))
       expect(data).not.toHaveProperty('hasCover')
       plans++
       return plans === 1
@@ -1317,7 +1335,7 @@ for (const failure of ['missing', 'error'] as const) {
       if (new URL(url).pathname.endsWith('/uploads')) {
         const data = JSON.parse(String(init.body))
         expect(data.coverMime).toBeNull()
-        expect(data.hashes.cover).toBeNull()
+        expect(data.hash).toMatch(/^[a-f0-9]{64}$/)
         uploads++
         return json({ id: null, unchanged: true, requiredFiles: [] })
       }
@@ -1366,7 +1384,10 @@ test('API requests abort on caller cancellation and connection changes', async (
     const controller = new AbortController()
     const request = changeConnection
       ? networkApi.listFolders()
-      : networkApi.getAudio('http://localhost:8787/api/audios/1/audio?v=v1', controller.signal)
+      : networkApi.getAudio(
+          'http://localhost:8787/api/audios/1/audio?hash=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+          controller.signal
+        )
     const result = request.catch(error => error)
     await ready
     if (changeConnection) useNetworkSettings.setState({ token: 'changed' })
@@ -1409,7 +1430,7 @@ test('API errors preserve status and text messages with a fallback for empty res
   await expect(networkApi.listFolders()).rejects.toMatchObject({ status: 500, message: '网络请求失败 (500)' })
 })
 
-test('media APIs preserve versions and return audio bytes, lyrics text and cover blobs', async () => {
+test('media APIs preserve content hashes and return audio bytes, lyrics text and cover blobs', async () => {
   const urls: string[] = []
   fetchHandler = async (url, init) => {
     urls.push(url)
@@ -1420,24 +1441,34 @@ test('media APIs preserve versions and return audio bytes, lyrics text and cover
     })
   }
   const base = 'http://localhost:8787/api/audios/1'
-  expect(new Uint8Array(await networkApi.getAudio(base + '/audio?v=v1'))).toEqual(new Uint8Array([0, 128, 255]))
-  expect(await networkApi.getLyrics(base + '/lyrics?v=v1')).toBe('[00:01]歌词')
-  const cover = await networkApi.getCover(base + '/cover?v=v1')
+  expect(
+    new Uint8Array(
+      await networkApi.getAudio(base + '/audio?hash=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa')
+    )
+  ).toEqual(new Uint8Array([0, 128, 255]))
+  expect(
+    await networkApi.getLyrics(base + '/lyrics?hash=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa')
+  ).toBe('[00:01]歌词')
+  const cover = await networkApi.getCover(
+    base + '/cover?hash=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+  )
   expect(cover.type).toBe('image/png')
   expect(new Uint8Array(await cover.arrayBuffer())).toEqual(new Uint8Array([0, 128, 255]))
-  expect(urls).toEqual(['audio', 'lyrics', 'cover'].map(kind => base + '/' + kind + '?v=v1&authToken=secret'))
+  expect(urls).toEqual(
+    ['audio', 'lyrics', 'cover'].map(kind => base + '/' + kind + '?hash=' + 'a'.repeat(64) + '&authToken=secret')
+  )
 })
 
-test('media APIs encode the current token and replace stale URL credentials without changing versions', async () => {
+test('media APIs encode the current token and replace stale URL credentials without changing content hashes', async () => {
   const token = 'key+&= 中文'
   useNetworkSettings.setState({ token })
-  const version = 'version+&= 中文'
-  const query = new URLSearchParams({ v: version, authToken: 'old-token' })
+  const contentHash = 'a'.repeat(64)
+  const query = new URLSearchParams({ hash: contentHash, authToken: 'old-token' })
   const requests: string[] = []
   fetchHandler = async url => {
     const parsed = new URL(url)
     expect(parsed.searchParams.getAll('authToken')).toEqual([token])
-    expect(parsed.searchParams.get('v')).toBe(version)
+    expect(parsed.searchParams.get('hash')).toBe(contentHash)
     expect(url.split('?')).toHaveLength(2)
     requests.push(parsed.pathname)
     return new Response('music')
@@ -1474,7 +1505,11 @@ test('media APIs reject stale server URLs without sending credentials', async ()
   }
   useNetworkSettings.setState({ serverUrl: 'https://music.example' })
   for (const request of [networkApi.getAudio, networkApi.getLyrics, networkApi.getCover]) {
-    await expect(request('http://localhost:8787/api/audios/1/audio?v=v1')).rejects.toThrow('服务端地址已变更')
+    await expect(
+      request(
+        'http://localhost:8787/api/audios/1/audio?hash=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+      )
+    ).rejects.toThrow('服务端地址已变更')
   }
   expect(calls).toBe(0)
 })
@@ -1516,4 +1551,41 @@ test('sync stops on authentication or service-unavailable errors', async () => {
       message: 'HttpError: 停止同步'
     })
   }
+})
+
+test('lyrics changes reuse memory audio and refresh lyrics', async () => {
+  const first = { ...toNetworkAudio({ ...row, hasLyrics: true }), folderName: '收藏' }
+  let requests: string[] = []
+  fetchHandler = async url => {
+    requests.push(url)
+    return new Response(url.includes('lyrics') ? 'old lyrics' : 'music')
+  }
+  await playAndSave(first)
+  requests = []
+  fetchHandler = async url => {
+    requests.push(url)
+    return new Response('new lyrics')
+  }
+  const next = {
+    ...toNetworkAudio({ ...row, hasLyrics: true, lyricsHash: 'e'.repeat(64) }),
+    folderName: '收藏'
+  }
+  await playAndSave(next)
+  expect(requests).toHaveLength(1)
+  expect(requests.some(url => url.includes('/audio?hash='))).toBe(false)
+  expect(requests.some(url => url.includes('/lyrics?hash='))).toBe(true)
+  expect(useAudioStore.getState().currentLrc).toBe('new lyrics')
+})
+test('metadata-only changes reuse disk audio and lyrics after memory is cleared', async () => {
+  const first = { ...toNetworkAudio({ ...row, hasLyrics: true }), folderName: '收藏' }
+  fetchHandler = async url => new Response(url.includes('lyrics') ? 'lyrics' : 'music')
+  await playAndSave(first)
+  cachedMap.clear()
+  const requests: string[] = []
+  fetchHandler = async url => {
+    requests.push(url)
+    return new Response('unexpected')
+  }
+  await playAndSave({ ...first, title: 'new title' })
+  expect(requests).toEqual([])
 })

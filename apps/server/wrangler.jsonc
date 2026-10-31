@@ -11,7 +11,7 @@
     {
       "binding": "D1",
       "database_name": "ying-audio-player",
-      "database_id": "2bc9d509-147b-4618-9b75-9d8fb8401b4b",
+      "database_id": "67f2a6cc-0a58-4814-ac31-717e4927be64",
       "migrations_dir": "drizzle",
       "migrations_pattern": "drizzle/*/migration.sql"
     }

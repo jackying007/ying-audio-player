@@ -64,7 +64,8 @@ pub struct CacheKey {
     folder_name: String,
     audio_id: u64,
     filename: String,
-    version: String,
+    hash: String,
+    lyrics_hash: Option<String>,
     has_lyrics: bool,
 }
 
@@ -126,18 +127,22 @@ fn safe_name(value: &str) -> String {
     }
 }
 
+fn valid_hash(value: &str) -> bool {
+    value.len() == 64 && value.bytes().all(|c| c.is_ascii_hexdigit())
+}
+
 fn validate_key(key: &CacheKey) -> Result<()> {
     if key.connection.len() != 64
         || !key.connection.bytes().all(|c| c.is_ascii_hexdigit())
         || key.folder_id == 0
         || key.audio_id == 0
         || key.filename.is_empty()
-        || key.version.is_empty()
-        || key.version.len() > 64
-        || !key
-            .version
-            .bytes()
-            .all(|c| c.is_ascii_alphanumeric() || c == b'-' || c == b'_')
+        || !valid_hash(&key.hash)
+        || key.has_lyrics != key.lyrics_hash.is_some()
+        || key
+            .lyrics_hash
+            .as_ref()
+            .is_some_and(|value| !valid_hash(value))
     {
         return Err("无效的网络缓存标识".into());
     }
@@ -487,7 +492,8 @@ mod tests {
             folder_name: "我的音乐".into(),
             audio_id: 1,
             filename: "song.mp3".into(),
-            version: "version-1".into(),
+            hash: "a".repeat(64),
+            lyrics_hash: Some("b".repeat(64)),
             has_lyrics: true,
         }
     }
@@ -615,10 +621,17 @@ mod tests {
     }
 
     #[test]
+    fn legacy_manifest_without_hashes_is_rejected() {
+        let old = r#"{"connection":"abc","folderId":1,"folderName":"music","audioId":1,"filename":"song.mp3","version":"v1","hasLyrics":false}"#;
+        assert!(serde_json::from_str::<CacheKey>(old).is_err());
+    }
+
+    #[test]
     fn no_lyrics_song_only_requires_audio() {
         let fixture = Fixture::new();
         let key = CacheKey {
             has_lyrics: false,
+            lyrics_hash: None,
             ..key()
         };
         fixture.save(&key);
@@ -660,7 +673,7 @@ mod tests {
         let old = key();
         fixture.save(&old);
         let new = CacheKey {
-            version: "version-2".into(),
+            hash: "c".repeat(64),
             filename: "blocked.mp3".into(),
             ..old.clone()
         };
@@ -706,8 +719,9 @@ mod tests {
         assert!(cached_files(&fixture.entry(&old), &old).is_none());
         assert!(cached_files(&fixture.entry(&other_connection), &other_connection).is_some());
         let new = CacheKey {
-            version: "version-2".into(),
+            hash: "c".repeat(64),
             has_lyrics: false,
+            lyrics_hash: None,
             ..old.clone()
         };
         fixture.save(&new);
@@ -754,7 +768,7 @@ mod tests {
         assert!(!safe_name(" song. ").ends_with([' ', '.']));
         for version in ["../escape", "", "a/b", "a\\b", "C:escape"] {
             let invalid = CacheKey {
-                version: version.into(),
+                hash: version.into(),
                 ..key.clone()
             };
             assert!(save_files(

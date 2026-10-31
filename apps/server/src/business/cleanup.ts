@@ -1,7 +1,6 @@
 import { and, asc, eq, exists, gt, gte, lt, notExists, or, sql } from 'drizzle-orm'
 import type { Database } from '@/db'
 import { audioGarbage, audios, audioUploads } from '@/db/schema'
-import { objectKey } from './metadata'
 
 export async function queueAudioCleanupRetry(db: Database, key: string) {
   // Renew SQLite's implicit rowid so an older cleaner cannot erase this retry.
@@ -20,7 +19,7 @@ export async function cleanupAudio(db: Database, bucket: R2Bucket) {
     const { id } = upload
     const keys = new Set(
       (['audio', 'lyrics', 'cover'] as const)
-        .flatMap(kind => [objectKey(id, kind), upload[`${kind}Key`]])
+        .map(kind => upload[`${kind}Key`])
         .filter((key): key is string => key !== null)
     )
     // Live versions are protected below, including committed uploads.

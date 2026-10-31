@@ -15,8 +15,10 @@ export type AudioMetadata = {
 export type NetworkAudio = AudioMetadata & {
   id: number
   folderId: number
-  version: string
+  hash: string
+  lyricsHash: string | null
 }
 export type UploadMetadata = AudioMetadata & {
-  hashes: { audio: string; lyrics: string | null; cover: string | null }
+  hash: string
+  lyricsHash: string | null
 }

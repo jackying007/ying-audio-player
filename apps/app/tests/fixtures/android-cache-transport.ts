@@ -71,7 +71,8 @@ const key = {
   folderName: '音乐',
   audioId: 1,
   filename: '原版.MP3',
-  version: 'v1',
+  hash: 'a'.repeat(64),
+  lyricsHash: 'b'.repeat(64),
   hasLyrics: true
 }
 const bytes = Uint8Array.from({ length: 256 * 1024 + 17 }, (_, index) => index % 256)

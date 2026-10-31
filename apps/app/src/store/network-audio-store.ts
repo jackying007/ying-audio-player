@@ -221,11 +221,7 @@ export async function syncLocalFolder(id: string) {
         const localCover = audio.hasCover ? await localAudio.getCover(audio.id) : null
         if (audio.hasCover && !localCover) throw new Error('本地封面不存在，请刷新文件夹后重试')
         const cover = localCover ? new Uint8Array(localCover.data) : undefined
-        const [audioHash, lyricsHash, coverHash] = await Promise.all([
-          fileHash(bytes),
-          lyrics ? fileHash(lyrics) : null,
-          cover ? fileHash(cover) : null
-        ])
+        const [hash, lyricsHash] = await Promise.all([fileHash(bytes), lyrics ? fileHash(lyrics) : null])
         signal.throwIfAborted()
         const upload = await networkApi.createUpload(
           remote.id,
@@ -238,7 +234,8 @@ export async function syncLocalFolder(id: string) {
             fileSize: audio.fileSize,
             hasLyrics: audio.hasLyrics,
             coverMime: localCover?.mime ?? null,
-            hashes: { audio: audioHash, lyrics: lyricsHash, cover: coverHash }
+            hash,
+            lyricsHash
           },
           signal
         )
