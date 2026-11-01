@@ -9,7 +9,6 @@ import { paramId, zValidator } from './base.validator'
 import {
   uploadMetadata,
   fileName,
-  objectKey,
   songName,
   checksumHex,
   uploadLimits,
@@ -17,6 +16,7 @@ import {
   type AudioMetadata,
   type FileKind
 } from './metadata'
+import { hasFile, objectPrefix, objectKey, objectKeys, objectKeySql } from './object-keys'
 import { cleanupAudioGarbage, queueAudioCleanupRetry } from './cleanup'
 
 type StoredAudio = typeof audios.$inferSelect
@@ -75,10 +75,10 @@ api.delete('/folders/:id', paramId, async c => {
       .select(
         db
           .select({
-            key: sql<string>`${table[`${kind}Key`]}`.as('key')
+            key: sql<string>`${objectKeySql(table, kind)}`.as('key')
           })
           .from(table)
-          .where(and(eq(table.folderId, id), isNotNull(table[`${kind}Key`])))
+          .where(and(eq(table.folderId, id), isNotNull(objectKeySql(table, kind))))
       )
       .onConflictDoNothing()
   await db.batch([
@@ -123,9 +123,9 @@ api.post('/folders/:id/uploads', paramId, zValidator('json', uploadMetadata), as
       .insert(audioGarbage)
       .select(
         db
-          .select({ key: sql<string>`${audioUploads[`${kind}Key`]}`.as('key') })
+          .select({ key: sql<string>`${objectKeySql(audioUploads, kind)}`.as('key') })
           .from(audioUploads)
-          .where(and(expired, isNotNull(audioUploads[`${kind}Key`])))
+          .where(and(expired, isNotNull(objectKeySql(audioUploads, kind))))
       )
       .onConflictDoNothing()
   await db.batch([
@@ -167,17 +167,20 @@ api.post('/folders/:id/uploads', paramId, zValidator('json', uploadMetadata), as
     .where(and(eq(audios.folderId, folderId), eq(songNameSql(audios.filename), songName(metadata.filename))))
     .get()
   const requiredFiles: FileKind[] = []
-  async function resolveKey(kind: FileKind, present: boolean) {
-    if (!present) return null
-    const key = existing?.[`${kind}Key`]
+  const keyPrefix = existing?.keyPrefix ?? objectPrefix(folder.name, metadata.filename)
+  for (const kind of ['audio', 'lyrics', 'cover'] as const) {
+    if (!hasFile(metadata, kind)) continue
     const unchanged = kind === 'lyrics' ? lyricsHash === existing?.lyricsHash : hash === existing?.hash
-    if (!existing?.updating && unchanged && key && (await c.env.R2.head(key))) return key
+    if (
+      existing &&
+      !existing.updating &&
+      unchanged &&
+      hasFile(parseMetadata(existing.metadata), kind) &&
+      (await c.env.R2.head(objectKey(existing.keyPrefix, kind)))
+    )
+      continue
     requiredFiles.push(kind)
-    return objectKey(folder!.name, metadata.filename, kind)
   }
-  const audioKey = await resolveKey('audio', true)
-  const lyricsKey = await resolveKey('lyrics', metadata.hasLyrics)
-  const coverKey = await resolveKey('cover', metadata.coverMime !== null)
   if (existing && !requiredFiles.length && existing.metadata === serialized) {
     return c.json({ id: null, unchanged: true, requiredFiles })
   }
@@ -189,9 +192,7 @@ api.post('/folders/:id/uploads', paramId, zValidator('json', uploadMetadata), as
       filename: metadata.filename,
       requiredFiles: JSON.stringify(requiredFiles),
       metadata: serialized,
-      audioKey,
-      lyricsKey,
-      coverKey,
+      keyPrefix,
       hash,
       lyricsHash,
       createdAt: Date.now()
@@ -228,15 +229,14 @@ api.put('/uploads/:id/:kind', async c => {
     throw new HTTPException(404, { message: '上传不存在或已过期' })
   if (upload.committed) throw new HTTPException(409, { message: '上传已经提交' })
   const metadata = parseMetadata(upload.metadata)
-  if ((kind === 'lyrics' && !metadata.hasLyrics) || (kind === 'cover' && !metadata.coverMime))
-    throw new HTTPException(400, { message: '该歌曲未声明此文件' })
+  if (!hasFile(metadata, kind)) throw new HTTPException(400, { message: '该歌曲未声明此文件' })
   const length = Number(c.req.header('Content-Length'))
   if (!c.req.raw.body || !Number.isSafeInteger(length) || length <= 0)
     throw new HTTPException(400, { message: '需要非空文件及 Content-Length' })
   if (length > uploadLimits[kind]) throw new HTTPException(413, { message: '文件超过大小限制' })
   if (kind === 'audio' && metadata.fileSize !== null && length !== metadata.fileSize)
     throw new HTTPException(400, { message: '文件大小与索引不符，请刷新本地列表后重试' })
-  const key = upload[`${kind}Key`]!
+  const key = objectKey(upload.keyPrefix, kind)
   const required = JSON.parse(upload.requiredFiles) as FileKind[]
   if (!required.includes(kind)) throw new HTTPException(409, { message: '该文件内容未变化，无需上传' })
   const writing = 'writing_' + kind
@@ -271,7 +271,7 @@ api.put('/uploads/:id/:kind', async c => {
     })
   })().catch(async error => {
     // Release the failed session so a fresh sync can repair the fixed objects immediately.
-    const keys = [upload.audioKey, upload.lyricsKey, upload.coverKey].filter((key): key is string => key !== null)
+    const keys = objectKeys(upload)
     await db.batch([
       db
         .insert(audioGarbage)
@@ -307,9 +307,9 @@ api.post('/uploads/:id/commit', async c => {
   if (upload.committed) return c.json({ ok: true })
   if (upload.createdAt < Date.now() - uploadSessionTtlMs) throw new HTTPException(409, { message: '上传已过期' })
   const metadata = parseMetadata(upload.metadata)
-  const audioKey = upload.audioKey!
-  const lyricsKey = metadata.hasLyrics ? upload.lyricsKey : null
-  const coverKey = metadata.coverMime ? upload.coverKey : null
+  const audioKey = objectKey(upload.keyPrefix, 'audio')
+  const lyricsKey = hasFile(metadata, 'lyrics') ? objectKey(upload.keyPrefix, 'lyrics') : null
+  const coverKey = hasFile(metadata, 'cover') ? objectKey(upload.keyPrefix, 'cover') : null
   const uploaded = JSON.parse(upload.uploadedFiles) as FileKind[]
   if ((JSON.parse(upload.requiredFiles) as FileKind[]).some(kind => !uploaded.includes(kind)))
     throw new HTTPException(409, { message: '文件尚未上传完整' })
@@ -332,18 +332,18 @@ api.post('/uploads/:id/commit', async c => {
     .select({ id: audioUploads.id })
     .from(audioUploads)
     .where(and(eq(audioUploads.id, id), eq(audioUploads.committed, 0)))
-  const queueOld = (column: 'audioKey' | 'lyricsKey' | 'coverKey') =>
+  const queueOld = (kind: FileKind) =>
     db
       .insert(audioGarbage)
       .select(
         db
-          .select({ key: sql<string>`${audios[column]}`.as('key') })
+          .select({ key: sql<string>`${objectKeySql(audios, kind)}`.as('key') })
           .from(audios)
           .where(
             and(
               eq(audios.folderId, upload.folderId),
               eq(songNameSql(audios.filename), songName(upload.filename)),
-              isNotNull(audios[column]),
+              isNotNull(objectKeySql(audios, kind)),
               exists(pending)
             )
           )
@@ -353,9 +353,9 @@ api.post('/uploads/:id/commit', async c => {
   // D1 批次具有原子性。请将“待处理/过期”检查包含在查询逻辑内，
   // 从而确保重复提交或定时清理操作不会导致已过时的上传内容被重新发布。
   const results = await db.batch([
-    queueOld('audioKey'),
-    queueOld('lyricsKey'),
-    queueOld('coverKey'),
+    queueOld('audio'),
+    queueOld('lyrics'),
+    queueOld('cover'),
     db
       .insert(audios)
       .select(
@@ -365,9 +365,7 @@ api.post('/uploads/:id/commit', async c => {
             filename: audioUploads.filename,
             metadata: audioUploads.metadata,
             updating: sql<number>`0`.as('updating'),
-            audioKey: sql<string>`${audioKey}`.as('audioKey'),
-            lyricsKey: sql<string | null>`${lyricsKey}`.as('lyricsKey'),
-            coverKey: sql<string | null>`${coverKey}`.as('coverKey'),
+            keyPrefix: audioUploads.keyPrefix,
             hash: audioUploads.hash,
             lyricsHash: audioUploads.lyricsHash
           })
@@ -380,9 +378,7 @@ api.post('/uploads/:id/commit', async c => {
           metadata: excludedAudio.metadata,
           filename: excludedAudio.filename,
           updating: 0,
-          audioKey: excludedAudio.audioKey,
-          lyricsKey: excludedAudio.lyricsKey,
-          coverKey: excludedAudio.coverKey,
+          keyPrefix: excludedAudio.keyPrefix,
           hash: excludedAudio.hash,
           lyricsHash: excludedAudio.lyricsHash
         }
@@ -406,8 +402,8 @@ api.get('/audios/:id/:kind', paramId, async c => {
   const expectedHash = kind === 'lyrics' ? row.lyricsHash : row.hash
   if (c.req.query('hash') && c.req.query('hash') !== expectedHash)
     throw new HTTPException(409, { message: '歌曲已更新，请刷新网络列表' })
-  const key = row[`${kind}Key`]
-  if (!key) throw new HTTPException(404, { message: '文件不存在' })
+  if (!hasFile(parseMetadata(row.metadata), kind)) throw new HTTPException(404, { message: '文件不存在' })
+  const key = objectKey(row.keyPrefix, kind)
   const object = await c.env.R2.get(key)
   if (!object) throw new HTTPException(404, { message: '文件不存在' })
   if (object.customMetadata?.contentHash !== expectedHash)

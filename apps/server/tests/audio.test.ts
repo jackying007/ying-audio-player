@@ -2,7 +2,8 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { Database, type SQLQueryBindings } from 'bun:sqlite'
 import { readdirSync, readFileSync } from 'node:fs'
 import worker from '../src/main'
-import { cleanupAudio } from '../src/business/cleanup'
+import { objectKeys } from '../src/business/object-keys'
+import { cleanupAudio, cleanupAudioGarbage } from '../src/business/cleanup'
 import { createDb } from '../src/db'
 import { audioGarbage, audioUploads, audios as audioTable } from '../src/db/schema'
 
@@ -609,8 +610,10 @@ describe('fixed-path audio API', () => {
   })
   test('schema derives song identity from filename without storing songName', async () => {
     for (const table of ['audios', 'audioUploads']) {
-      const columns = db.sqlite.query('PRAGMA table_info(' + table + ')').all() as { name: string }[]
+      const columns = db.sqlite.query('PRAGMA table_info(' + table + ')').all() as { name: string; notnull: number }[]
       expect(columns.some(column => column.name === 'songName')).toBe(false)
+      expect(columns.find(column => column.name === 'keyPrefix')?.notnull).toBe(1)
+      expect(columns.some(column => ['audioKey', 'lyricsKey', 'coverKey'].includes(column.name))).toBe(false)
       expect(columns.filter(column => /hash/i.test(column.name)).map(column => column.name)).toEqual([
         'hash',
         'lyricsHash'
@@ -619,11 +622,12 @@ describe('fixed-path audio API', () => {
     const f = await folder()
     await publishHashed(f.id)
     expect(() =>
-      db.sqlite.run('INSERT INTO audios(folderId,filename,metadata,audioKey,hash) VALUES(?,?,?,?,?)', [
+      db.sqlite.run('INSERT INTO audios(folderId,filename,metadata,keyPrefix,hash) VALUES(?,?,?,?,?)', [
         f.id,
         '音乐.mp3',
         JSON.stringify(metadata),
-        'duplicate'
+        'duplicate',
+        hash('music')
       ])
     ).toThrow()
     const first = (await audios(f.id))[0]
@@ -738,4 +742,129 @@ describe('fixed-path audio API', () => {
     const audioUpdate = await hashedPlan(f.id, {}, { ...contents, audio: 'other', cover: 'new cover' })
     expect(audioUpdate.requiredFiles).toEqual(['audio', 'cover'])
   })
+})
+
+test.each([false, true])(
+  'keyPrefix migration preserves legacy records and ID sequence (empty songs: %s)',
+  async empty => {
+    db.sqlite.close()
+    db = new TestD1(false)
+    env.D1 = db as unknown as D1Database
+    const root = new URL('../drizzle/', import.meta.url)
+    const migrations = readdirSync(root).sort()
+    db.sqlite.exec(readFileSync(new URL(migrations[0] + '/migration.sql', root), 'utf8'))
+    db.sqlite.run('INSERT INTO folders(id,name) VALUES(?,?)', [7, '音乐 收藏'])
+    for (const [index, extras] of [true, false].entries()) {
+      const data = { ...metadata, filename: index + '.MP3', hasLyrics: extras, coverMime: extras ? 'image/jpeg' : null }
+      const prefix = '音乐 收藏/' + index
+      db.sqlite.run(
+        'INSERT INTO audios(id,folderId,filename,metadata,updating,audioKey,lyricsKey,coverKey,hash,lyricsHash) VALUES(?,7,?,?,1,?,?,?,?,?)',
+        [
+          index + 10,
+          data.filename,
+          JSON.stringify(data),
+          prefix + '/audio',
+          extras ? prefix + '/lyrics' : null,
+          extras ? prefix + '/cover' : null,
+          hash('music'),
+          extras ? hash(fileContents.lyrics) : null
+        ]
+      )
+      for (const committed of [0, 1]) {
+        db.sqlite.run(
+          'INSERT INTO audioUploads(id,folderId,filename,requiredFiles,uploadedFiles,metadata,audioKey,lyricsKey,coverKey,hash,lyricsHash,createdAt,committed) VALUES(?,7,?,?,?,?,?,?,?,?,?,?,?)',
+          [
+            index + '-' + committed,
+            data.filename,
+            '["audio","lyrics"]',
+            '["audio","writing_lyrics"]',
+            JSON.stringify(data),
+            committed ? prefix + '/audio' : null,
+            extras ? prefix + '/lyrics' : null,
+            extras ? prefix + '/cover' : null,
+            hash('music'),
+            extras ? hash(fileContents.lyrics) : null,
+            123456,
+            committed
+          ]
+        )
+      }
+    }
+    db.sqlite.exec(
+      "INSERT INTO audios(id,folderId,filename,metadata,audioKey,hash) VALUES(900,7,'deleted.mp3','{}','deleted/audio','hash'); DELETE FROM audios WHERE id=900;"
+    )
+    if (empty) db.sqlite.exec('DELETE FROM audios')
+    const oldSongs = db.sqlite.prepare('SELECT * FROM audios ORDER BY id').all() as Record<string, unknown>[]
+    const oldUploads = db.sqlite.prepare('SELECT * FROM audioUploads ORDER BY id').all() as Record<string, unknown>[]
+    db.sqlite.run('INSERT INTO audioGarbage(key) VALUES(?)', ['音乐 收藏/0/lyrics'])
+    for (const migration of migrations.slice(1))
+      db.sqlite.exec(readFileSync(new URL(migration + '/migration.sql', root), 'utf8'))
+    const convert = (row: Record<string, unknown>) => {
+      const { audioKey, lyricsKey: _lyrics, coverKey: _cover, ...rest } = row
+      return {
+        ...rest,
+        keyPrefix: audioKey ? String(audioKey).slice(0, -6) : '音乐 收藏/' + String(row.filename).slice(0, -4)
+      }
+    }
+    expect(db.sqlite.prepare('SELECT * FROM audios ORDER BY id').all()).toEqual(oldSongs.map(convert))
+    expect(db.sqlite.prepare('SELECT * FROM audioUploads ORDER BY id').all()).toEqual(oldUploads.map(convert))
+    for (const row of await createDb(env.D1).select().from(audioUploads)) {
+      expect(objectKeys(row)).toEqual(
+        row.filename === '0.MP3'
+          ? ['音乐 收藏/0/audio', '音乐 收藏/0/lyrics', '音乐 收藏/0/cover']
+          : ['音乐 收藏/1/audio']
+      )
+    }
+    expect(db.sqlite.query('SELECT * FROM audioGarbage').all()).toEqual([{ key: '音乐 收藏/0/lyrics' }])
+    expect(db.sqlite.query('PRAGMA foreign_key_check').all()).toEqual([])
+    expect(
+      db.sqlite
+        .query(
+          "SELECT name FROM sqlite_master WHERE type='index' AND name IN ('audioIndex','pendingSongUpload') ORDER BY name"
+        )
+        .all()
+    ).toEqual([{ name: 'audioIndex' }, { name: 'pendingSongUpload' }])
+    const inserted = db.sqlite.run('INSERT INTO audios(folderId,filename,metadata,keyPrefix,hash) VALUES(7,?,?,?,?)', [
+      'new.mp3',
+      JSON.stringify(metadata),
+      '音乐 收藏/new',
+      hash('music')
+    ])
+    expect(Number(inserted.lastInsertRowid)).toBe(901)
+    expect(() =>
+      db.sqlite.run('INSERT INTO audios(folderId,filename,metadata,keyPrefix,hash) VALUES(999,?,?,?,?)', [
+        'bad.mp3',
+        '{}',
+        'bad',
+        'hash'
+      ])
+    ).toThrow()
+  }
+)
+
+test('cleanup protects only exact declared keys in live songs and pending uploads', async () => {
+  const f = await folder('音乐 收藏')
+  await publishHashed(f.id)
+  const prefix = '音乐 收藏/音乐'
+  const live = (await audios(f.id))[0]
+  const removed = await hashedPlan(f.id, { hasLyrics: false, coverMime: null })
+  expect((await request('/uploads/' + removed.id + '/commit', 'POST')).status).toBe(200)
+  const pending = await hashedPlan(f.id)
+  await cleanupAudioGarbage(createDb(env.D1), env.R2)
+  expect(bucket.objects.has(prefix + '/lyrics')).toBe(true)
+  expect(bucket.objects.has(prefix + '/cover')).toBe(true)
+  // The pending upload protects declared files; a neighbouring prefix does not.
+  await createDb(env.D1)
+    .insert(audioGarbage)
+    .values({ key: prefix + '/audio/extra' })
+  await cleanupAudioGarbage(createDb(env.D1), env.R2)
+  expect((await createDb(env.D1).select().from(audioGarbage)).map(row => row.key).sort()).toEqual([
+    prefix + '/cover',
+    prefix + '/lyrics'
+  ])
+  expect((await request('/audios/' + live.id + '/lyrics')).status).toBe(404)
+  expect((await request('/audios/' + live.id + '/cover')).status).toBe(404)
+  db.sqlite.run('DELETE FROM audioUploads WHERE id=?', [pending.id])
+  await cleanupAudioGarbage(createDb(env.D1), env.R2)
+  expect([...bucket.objects.keys()]).toEqual([prefix + '/audio'])
 })

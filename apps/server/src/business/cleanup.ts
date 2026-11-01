@@ -1,5 +1,6 @@
 import { and, asc, eq, exists, gt, gte, lt, notExists, or, sql } from 'drizzle-orm'
 import type { Database } from '@/db'
+import { fileKinds, objectKeys, objectKeySql } from './object-keys'
 import { uploadSessionTtlMs } from './metadata'
 import { audioGarbage, audios, audioUploads } from '@/db/schema'
 
@@ -18,16 +19,12 @@ export async function cleanupAudio(db: Database, bucket: R2Bucket) {
     .limit(100)
   for (const upload of expired) {
     const { id } = upload
-    const keys = new Set(
-      (['audio', 'lyrics', 'cover'] as const)
-        .map(kind => upload[`${kind}Key`])
-        .filter((key): key is string => key !== null)
-    )
+    const keys = objectKeys(upload)
     // Live versions are protected below, including committed uploads.
     await db.batch([
       db
         .insert(audioGarbage)
-        .values([...keys].map(key => ({ key })))
+        .values(keys.map(key => ({ key })))
         .onConflictDoNothing(),
       db.delete(audioUploads).where(eq(audioUploads.id, id))
     ])
@@ -39,13 +36,7 @@ export async function cleanupAudioGarbage(db: Database, bucket: R2Bucket) {
   const liveReference = db
     .select({ id: audios.id })
     .from(audios)
-    .where(
-      or(
-        eq(audios.audioKey, audioGarbage.key),
-        eq(audios.lyricsKey, audioGarbage.key),
-        eq(audios.coverKey, audioGarbage.key)
-      )
-    )
+    .where(or(...fileKinds.map(kind => eq(objectKeySql(audios, kind), audioGarbage.key))))
   // 未完成的同步可能复用旧版本对象；在提交或过期之前也必须保留这些引用。
   const pendingReference = db
     .select({ id: audioUploads.id })
@@ -54,11 +45,7 @@ export async function cleanupAudioGarbage(db: Database, bucket: R2Bucket) {
       and(
         eq(audioUploads.committed, 0),
         gte(audioUploads.createdAt, Date.now() - uploadSessionTtlMs),
-        or(
-          eq(audioUploads.audioKey, audioGarbage.key),
-          eq(audioUploads.lyricsKey, audioGarbage.key),
-          eq(audioUploads.coverKey, audioGarbage.key)
-        )
+        or(...fileKinds.map(kind => eq(objectKeySql(audioUploads, kind), audioGarbage.key)))
       )
     )
   let cursor: string | undefined

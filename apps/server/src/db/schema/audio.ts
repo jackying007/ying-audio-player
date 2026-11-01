@@ -19,9 +19,7 @@ export const audios = sqliteTable(
     filename: text().notNull(),
     metadata: text().notNull(),
     updating: integer().notNull().default(0),
-    audioKey: text().notNull(),
-    lyricsKey: text(),
-    coverKey: text(),
+    keyPrefix: text().notNull(),
     // 音频与歌词各自的 SHA-256；封面随音频更新，不单独保存 hash。
     hash: text().notNull(),
     lyricsHash: text()
@@ -45,10 +43,8 @@ export const audioUploads = sqliteTable(
     requiredFiles: text().notNull(),
     uploadedFiles: text().notNull().default('[]'),
     metadata: text().notNull(),
-    // 保存本次发布使用的文件引用：未变化的文件复用已发布对象，变化的文件覆盖同一路径对象。
-    audioKey: text(),
-    lyricsKey: text(),
-    coverKey: text(),
+    // 保存本次发布使用的对象前缀：未变化的文件复用已发布对象，变化的文件覆盖同一路径对象。
+    keyPrefix: text().notNull(),
     hash: text().notNull(),
     lyricsHash: text(),
     createdAt: integer().notNull(),
