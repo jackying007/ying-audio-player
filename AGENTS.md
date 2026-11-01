@@ -85,13 +85,12 @@ Tauri 自动启动 Vite 并打开窗口。Vite 固定使用 `http://localhost:14
 
 ## 服务端数据与接口
 
-- 手动清理：`POST /api/admin/cleanup?authToken=<密钥>`，沿用现有 query 鉴权，无请求体，复用定时任务的 `cleanupAudio`，等待本轮完成后返回 `{ ok: true }`；失败返回文本错误，未删除成功的资源保留队列重试。每轮最多处理 100 条超过 24 小时的上传记录，保护已发布歌曲及未过期上传引用的对象，不代表清空全部积压。部署后可在 PowerShell 执行 `Invoke-RestMethod -Method Post -Uri ("https://<Worker域名>/api/admin/cleanup?authToken=" + [Uri]::EscapeDataString($env:API_TOKEN))`，先在当前终端设置实际 `API_TOKEN` 环境变量；线上不提供本地调试用的 `/__scheduled`。
 - API 基础路径为 `/api`：`GET/POST /folders`、`DELETE /folders/:id`、`GET /folders/:id/audios`、`POST /folders/:id/uploads`、`PUT /uploads/:id/{audio,lyrics,cover}`、`POST /uploads/:id/commit`、`GET /audios/:id/{audio,lyrics,cover}`。文件夹删除幂等返回 `{ ok: true }`，D1 原子登记全部资源清理并删除文件夹、歌曲及上传记录，随后立即后台尝试清理 R2；失败保留队列，由每小时任务重试。
 - D1/R2 绑定名为 `D1`、`R2`；schema 位于 `apps/server/src/db/schema/audio.ts`，歌曲通过表达式唯一索引按「folderId + filename 去掉末尾 .mp3」匹配，保留其余大小写，不额外存储歌曲匹配名称。
 - `folders` 保存文件夹；`audios` 保存已发布的元数据、R2 引用和音频 hash 与歌词 hash。R2 key 为 `文件夹名/去扩展名文件名/audio|lyrics|cover`；不保留历史对象。音频/封面 URL 使用音频 `hash`，歌词 URL 使用 `lyricsHash` 作为 `hash` 查询参数，区分缓存并拒绝过期请求，不再提供 `version`。
 - `audioUploads` 保存待发布元数据、hash 和复用/新上传的对象引用；其 hash 用于本次上传校验，`audios` 的 hash 用于下次比较。上传 hash 必填；同曲最多一个未过期待提交会话。上传记录保存必需文件及完成状态，旧对象存在不能代替本次上传完成。
 - D1 与 R2 不共享事务：文件齐全后通过 Drizzle `db.batch` 原子更新歌曲、旧文件清理队列及提交标记。保留幂等、过期和并发检查；固定路径覆盖前设置 `updating` 并阻止媒体读取，提交后恢复；失败不回滚旧文件，释放失败会话以便立即重试；失败或过期后的下一次同步强制重传。D1 限制正常同曲并发，删除/过期和在途请求的极端交错仍可能冲突。
-- `audioGarbage` 仅保存待删除 R2 key。每小时清理替换的旧文件及超过 24 小时的上传记录/暂存对象；删除前检查当前歌曲和未过期待提交上传的引用，删除失败保留队列重试。R2 桶保持私有。
+- `audioGarbage` 仅保存待删除 R2 key。每小时清理替换的旧文件及超过 30 分钟的上传记录/暂存对象；删除前检查当前歌曲和未过期待提交上传的引用，删除失败保留队列重试。R2 桶保持私有。
 - 数据库访问由 `src/db/middleware.ts` 配置的 Drizzle 实例提供；接口通过 `c.get('db')` 获取，定时任务通过 `createDb` 初始化。
 - `business/base.validator.ts` 提供路由参数校验，数值 ID 为正安全整数，上传 ID 为 UUID；`app.error.handler.ts` 统一处理 HTTP 异常。
 - 服务端请求的 Zod schema 校验统一使用 `business/base.validator.ts` 导出的 `zValidator` 中间件，通过 `c.req.valid(...)` 获取校验后的数据；不要在路由中手写 `safeParse` / `parse` 及校验错误处理。

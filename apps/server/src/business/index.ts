@@ -13,10 +13,11 @@ import {
   songName,
   checksumHex,
   uploadLimits,
+  uploadSessionTtlMs,
   type AudioMetadata,
   type FileKind
 } from './metadata'
-import { cleanupAudio, cleanupAudioGarbage, queueAudioCleanupRetry } from './cleanup'
+import { cleanupAudioGarbage, queueAudioCleanupRetry } from './cleanup'
 
 type StoredAudio = typeof audios.$inferSelect
 const excludedAudio = alias(audios, 'excluded')
@@ -57,11 +58,6 @@ function publicAudio(row: StoredAudio) {
 }
 
 export const api = new Hono<AppEnv>()
-
-api.post('/admin/cleanup', async c => {
-  await cleanupAudio(c.get('db'), c.env.R2)
-  return c.json({ ok: true })
-})
 
 api.get('/folders', async c => c.json(await c.get('db').select().from(folders).orderBy(asc(folders.id))))
 api.post('/folders', zValidator('json', z.object({ name: fileName })), async c => {
@@ -120,7 +116,7 @@ api.post('/folders/:id/uploads', paramId, zValidator('json', uploadMetadata), as
   const expired = and(
     eq(audioUploads.folderId, folderId),
     eq(audioUploads.committed, 0),
-    sql`${audioUploads.createdAt} < ${Date.now() - 86400000}`
+    sql`${audioUploads.createdAt} < ${Date.now() - uploadSessionTtlMs}`
   )
   const queueExpired = (kind: FileKind) =>
     db
@@ -149,10 +145,22 @@ api.post('/folders/:id/uploads', paramId, zValidator('json', uploadMetadata), as
       )
     )
     .get()
-  if (pendingUpload) throw new HTTPException(409, { message: '该歌曲正在上传，请稍后重试' })
-  const id = crypto.randomUUID()
   const { hash, lyricsHash, ...metadata } = c.req.valid('json')
   const serialized = JSON.stringify(metadata)
+  if (pendingUpload) {
+    const uploaded = JSON.parse(pendingUpload.uploadedFiles) as string[]
+    if (uploaded.some(kind => kind.startsWith('writing_')))
+      throw new HTTPException(409, { message: '该歌曲正在上传，请稍后重试' })
+    if (pendingUpload.hash !== hash || pendingUpload.lyricsHash !== lyricsHash || pendingUpload.metadata !== serialized)
+      throw new HTTPException(409, { message: '该歌曲存在内容不同的未完成上传，请使用原文件完成同步或等待会话过期' })
+    // A lost response or a disconnect between requests must not lock out retries.
+    // Keep the original session and its per-file claims to prevent concurrent writes.
+    const requiredFiles = (JSON.parse(pendingUpload.requiredFiles) as FileKind[]).filter(
+      kind => !uploaded.includes(kind)
+    )
+    return c.json({ id: pendingUpload.id, unchanged: false, requiredFiles })
+  }
+  const id = crypto.randomUUID()
   const existing = await db
     .select()
     .from(audios)
@@ -216,7 +224,7 @@ api.put('/uploads/:id/:kind', async c => {
   const kind = c.req.param('kind') as FileKind
   if (!Object.hasOwn(uploadLimits, kind)) throw new HTTPException(404, { message: '文件类型不存在' })
   const upload = await db.select().from(audioUploads).where(eq(audioUploads.id, id)).get()
-  if (!upload || upload.createdAt < Date.now() - 86400000)
+  if (!upload || upload.createdAt < Date.now() - uploadSessionTtlMs)
     throw new HTTPException(404, { message: '上传不存在或已过期' })
   if (upload.committed) throw new HTTPException(409, { message: '上传已经提交' })
   const metadata = parseMetadata(upload.metadata)
@@ -277,7 +285,7 @@ api.put('/uploads/:id/:kind', async c => {
   })
   if (!stored) throw new HTTPException(409, { message: '文件已上传，请重新同步该歌曲' })
   const remaining = await db.select().from(audioUploads).where(eq(audioUploads.id, id)).get()
-  if (!remaining || (!remaining.committed && remaining.createdAt < Date.now() - 86400000)) {
+  if (!remaining || (!remaining.committed && remaining.createdAt < Date.now() - uploadSessionTtlMs)) {
     // A DELETE may already have drained its queue before this late PUT completed.
     await c.env.R2.delete(key).catch(async () => {
       await queueAudioCleanupRetry(db, key)
@@ -297,7 +305,7 @@ api.post('/uploads/:id/commit', async c => {
   const upload = await db.select().from(audioUploads).where(eq(audioUploads.id, id)).get()
   if (!upload) throw new HTTPException(404, { message: '上传不存在' })
   if (upload.committed) return c.json({ ok: true })
-  if (upload.createdAt < Date.now() - 86400000) throw new HTTPException(409, { message: '上传已过期' })
+  if (upload.createdAt < Date.now() - uploadSessionTtlMs) throw new HTTPException(409, { message: '上传已过期' })
   const metadata = parseMetadata(upload.metadata)
   const audioKey = upload.audioKey!
   const lyricsKey = metadata.hasLyrics ? upload.lyricsKey : null
@@ -341,7 +349,7 @@ api.post('/uploads/:id/commit', async c => {
           )
       )
       .onConflictDoNothing()
-  const cutoff = Date.now() - 86400000
+  const cutoff = Date.now() - uploadSessionTtlMs
   // D1 批次具有原子性。请将“待处理/过期”检查包含在查询逻辑内，
   // 从而确保重复提交或定时清理操作不会导致已过时的上传内容被重新发布。
   const results = await db.batch([

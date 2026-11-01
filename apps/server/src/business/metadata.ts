@@ -33,6 +33,7 @@ const fileHash = z.string().regex(/^[a-f0-9]{64}$/, '无效的 SHA-256')
 export const uploadMetadata = audioMetadata
   .extend({ hash: fileHash, lyricsHash: fileHash.nullable() })
   .refine(value => value.hasLyrics === (value.lyricsHash !== null), '歌词 hash 与歌词声明不一致')
+export const uploadSessionTtlMs = 30 * 60 * 1000
 export const uploadLimits = { audio: 50 * 1024 * 1024, lyrics: 1024 * 1024, cover: 10 * 1024 * 1024 }
 export type FileKind = keyof typeof uploadLimits
 export const objectKey = (folder: string, filename: string, kind: FileKind) => `${folder}/${songName(filename)}/${kind}`

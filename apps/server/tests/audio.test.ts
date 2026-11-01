@@ -195,39 +195,43 @@ afterEach(async () => {
 })
 
 describe('fixed-path audio API', () => {
-  test('manual cleanup requires authentication and POST without changing queued resources', async () => {
-    await createDb(env.D1).insert(audioGarbage).values({ key: 'orphan' })
-    for (const token of ['', 'wrong', 'Bearer test-key'])
-      expect((await request('/admin/cleanup', 'POST', undefined, token)).status).toBe(401)
-    expect((await app.request('http://localhost/api/admin/cleanup', { method: 'POST' }, env)).status).toBe(401)
-    expect((await request('/admin/cleanup')).status).toBe(404)
-    expect(await createDb(env.D1).select().from(audioGarbage)).toEqual([{ key: 'orphan' }])
-  })
-  test('manual cleanup expires uploads, deletes unused objects and preserves published songs', async () => {
+  test('cleanup expires uploads, deletes unused objects and preserves published songs', async () => {
     const f = await folder()
     await publishHashed(f.id)
     const expired = await upload(f.id, { filename: 'expired.mp3' })
     await files(expired)
-    db.sqlite.prepare('UPDATE audioUploads SET createdAt = ? WHERE id = ?').run(Date.now() - 86400001, expired)
-    const response = await request('/admin/cleanup', 'POST')
-    expect(response.status).toBe(200)
-    expect(await response.json()).toEqual({ ok: true })
+    db.sqlite.prepare('UPDATE audioUploads SET createdAt = ? WHERE id = ?').run(Date.now() - 31 * 60 * 1000, expired)
+    await cleanupAudio(createDb(env.D1), env.R2)
     expect(await createDb(env.D1).select().from(audioUploads)).toHaveLength(1)
     expect(await createDb(env.D1).select().from(audioGarbage)).toEqual([])
     expect([...bucket.objects.keys()].sort()).toEqual(['收藏/音乐/audio', '收藏/音乐/cover', '收藏/音乐/lyrics'])
-    expect(await (await request('/admin/cleanup', 'POST')).json()).toEqual({ ok: true })
+    await cleanupAudio(createDb(env.D1), env.R2)
   })
-  test('manual cleanup reports failures and retains queued resources for retry', async () => {
+  test('uploads remain usable at 29 minutes and expire at 31 minutes', async () => {
+    const f = await folder()
+    const id = await upload(f.id)
+    const age = (minutes: number) =>
+      db.sqlite.prepare('UPDATE audioUploads SET createdAt = ? WHERE id = ?').run(Date.now() - minutes * 60 * 1000, id)
+    age(29)
+    await cleanupAudio(createDb(env.D1), env.R2)
+    expect(await createDb(env.D1).select().from(audioUploads)).toHaveLength(1)
+    await files(id)
+    age(31)
+    expect((await request(`/uploads/${id}/audio`, 'PUT', 'music')).status).toBe(404)
+    expect((await request(`/uploads/${id}/commit`, 'POST')).status).toBe(409)
+    const next = await upload(f.id)
+    expect(next).not.toBe(id)
+    expect((await request(`/uploads/${id}/commit`, 'POST')).status).toBe(404)
+  })
+  test('cleanup reports failures and retains queued resources for retry', async () => {
     await createDb(env.D1).insert(audioGarbage).values({ key: 'orphan' })
     bucket.delete = async () => {
       throw new Error('storage unavailable')
     }
-    const response = await request('/admin/cleanup', 'POST')
-    expect(response.status).toBe(500)
-    expect(await response.text()).toBe('storage unavailable')
+    await expect(cleanupAudio(createDb(env.D1), env.R2)).rejects.toThrow('storage unavailable')
     expect(await createDb(env.D1).select().from(audioGarbage)).toEqual([{ key: 'orphan' }])
     bucket.delete = TestBucket.prototype.delete
-    expect((await request('/admin/cleanup', 'POST')).status).toBe(200)
+    await cleanupAudio(createDb(env.D1), env.R2)
     expect(await createDb(env.D1).select().from(audioGarbage)).toEqual([])
   })
   test('deletes empty folders and permits recreating the same name with a new ID', async () => {
@@ -365,6 +369,59 @@ describe('fixed-path audio API', () => {
     expect((await request('/uploads/' + next.id + '/commit', 'POST')).status).toBe(200)
     expect(await (await request('/audios/' + row.id + '/audio?hash=' + hash(contents.audio))).text()).toBe('other')
     expect((await request('/audios/' + row.id + '/audio?hash=' + hash(fileContents.audio))).status).toBe(409)
+  })
+  test('retry resumes an interrupted upload and only requests unfinished files', async () => {
+    const f = await folder()
+    const body = { ...metadata, hash: hash(fileContents.audio), lyricsHash: hash(fileContents.lyrics) }
+    const id = await upload(f.id)
+    const retry = async () => {
+      const response = await request(`/folders/${f.id}/uploads`, 'POST', body)
+      expect(response.status).toBe(200)
+      return (await response.json()) as { id: string; requiredFiles: string[]; unchanged: boolean }
+    }
+    expect(await retry()).toEqual({ id, requiredFiles: ['audio', 'lyrics', 'cover'], unchanged: false })
+    expect((await request(`/uploads/${id}/audio`, 'PUT', 'music')).status).toBe(200)
+    expect((await retry()).requiredFiles).toEqual(['lyrics', 'cover'])
+    expect((await request(`/uploads/${id}/lyrics`, 'PUT', fileContents.lyrics)).status).toBe(200)
+    expect((await request(`/uploads/${id}/cover`, 'PUT', 'image')).status).toBe(200)
+    expect((await retry()).requiredFiles).toEqual([])
+    expect((await request(`/uploads/${id}/commit`, 'POST')).status).toBe(200)
+    expect(await audios(f.id)).toHaveLength(1)
+  })
+  test('retry cannot take over an active write or change pending content', async () => {
+    const f = await folder()
+    const id = await upload(f.id)
+    const body = { ...metadata, hash: hash(fileContents.audio), lyricsHash: hash(fileContents.lyrics) }
+    const originalPut = bucket.put.bind(bucket)
+    let entered!: () => void
+    let release!: () => void
+    const started = new Promise<void>(resolve => {
+      entered = resolve
+    })
+    const paused = new Promise<void>(resolve => {
+      release = resolve
+    })
+    bucket.put = async (...args) => {
+      entered()
+      await paused
+      return originalPut(...args)
+    }
+    const writing = request(`/uploads/${id}/audio`, 'PUT', 'music')
+    await started
+    try {
+      const response = await request(`/folders/${f.id}/uploads`, 'POST', body)
+      expect(response.status).toBe(409)
+      expect(await response.text()).toBe('该歌曲正在上传，请稍后重试')
+    } finally {
+      release()
+      await writing
+    }
+    for (const patch of [{ hash: hash('other') }, { lyricsHash: hash('other') }, { title: 'changed' }]) {
+      expect((await request(`/folders/${f.id}/uploads`, 'POST', { ...body, ...patch })).status).toBe(409)
+    }
+    const retry = await request(`/folders/${f.id}/uploads`, 'POST', body)
+    expect(retry.status).toBe(200)
+    expect(await retry.json()).toEqual({ id, unchanged: false, requiredFiles: ['lyrics', 'cover'] })
   })
   test('same song sessions conflict atomically, different songs proceed', async () => {
     const f = await folder()

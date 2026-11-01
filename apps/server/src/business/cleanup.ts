@@ -1,5 +1,6 @@
 import { and, asc, eq, exists, gt, gte, lt, notExists, or, sql } from 'drizzle-orm'
 import type { Database } from '@/db'
+import { uploadSessionTtlMs } from './metadata'
 import { audioGarbage, audios, audioUploads } from '@/db/schema'
 
 export async function queueAudioCleanupRetry(db: Database, key: string) {
@@ -13,7 +14,7 @@ export async function cleanupAudio(db: Database, bucket: R2Bucket) {
   const expired = await db
     .select()
     .from(audioUploads)
-    .where(lt(audioUploads.createdAt, Date.now() - 24 * 60 * 60 * 1000))
+    .where(lt(audioUploads.createdAt, Date.now() - uploadSessionTtlMs))
     .limit(100)
   for (const upload of expired) {
     const { id } = upload
@@ -52,7 +53,7 @@ export async function cleanupAudioGarbage(db: Database, bucket: R2Bucket) {
     .where(
       and(
         eq(audioUploads.committed, 0),
-        gte(audioUploads.createdAt, Date.now() - 86400000),
+        gte(audioUploads.createdAt, Date.now() - uploadSessionTtlMs),
         or(
           eq(audioUploads.audioKey, audioGarbage.key),
           eq(audioUploads.lyricsKey, audioGarbage.key),

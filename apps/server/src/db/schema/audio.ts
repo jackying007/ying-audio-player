@@ -33,7 +33,7 @@ export const audios = sqliteTable(
 // D1 和 R2 无法在同一个事务中提交，因此先暂存元数据并上传文件，
 // 确认音频、歌词、封面全部上传成功后，再通过 D1 事务发布到 audios。
 // 固定路径不保留历史文件；覆盖失败后歌曲保持 updating，下次同步强制重传。
-// 已提交记录短期保留以支持幂等提交；超过 24 小时的暂存记录由定时任务清理。
+// 已提交记录短期保留以支持幂等提交；超过 30 分钟的暂存记录由定时任务清理。
 export const audioUploads = sqliteTable(
   'audioUploads',
   {
