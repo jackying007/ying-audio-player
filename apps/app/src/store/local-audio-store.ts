@@ -124,7 +124,8 @@ export async function playAllLocalAudios() {
       audio =>
         currentFolders.some(folder => folder.id === audio.folderId) && !removingFolderIds.includes(audio.folderId)
     )
-  const firstAudio = audioList[0]
+  const firstIndex = useAppStore.getState().playMode === 'shuffle' ? Math.floor(Math.random() * audioList.length) : 0
+  const firstAudio = audioList[firstIndex]
   if (!firstAudio) throw new Error('暂无可播放的音乐')
   await playAudio(firstAudio, { audioList, playlistFolderId: undefined })
 }

@@ -272,6 +272,44 @@ test('play all network songs replaces the queue in folder and song order and sta
   expect(useAudioStore.getState().currentAudioInfo?.id).toBe(2)
 })
 
+test.each(['local', 'network'] as const)(
+  'play all %s songs randomizes the first song in shuffle mode',
+  async source => {
+    prepareLocalRemoval()
+    const other = { ...local, id: 2, folderId: 2, link: 'C:/other/other.mp3' }
+    files.set(other.link, new Uint8Array([1]))
+    localInvokeHook = async (command, args) => {
+      if (command.endsWith('list_audios')) return (args as { folderId: number }).folderId === 1 ? [local] : [other]
+    }
+    useNetworkAudioStore.setState({
+      folders: [
+        { id: 1, name: 'Music' },
+        { id: 2, name: 'Other' }
+      ]
+    })
+    fetchHandler = async url => {
+      const path = new URL(url).pathname
+      if (path.endsWith('/folders/1/audios')) return json([row])
+      if (path.endsWith('/folders/2/audios')) return json([{ ...row, id: 2, folderId: 2 }])
+      return new Response('music')
+    }
+    useAppStore.setState({ playMode: 'shuffle' })
+    const random = spyOn(Math, 'random').mockReturnValue(0.999)
+    try {
+      await (source === 'local' ? playAllLocalAudios() : playAllNetworkAudios())
+      const player = useAudioStore.getState()
+      expect(player.audioList.map(audio => audio.id)).toEqual([1, 2])
+      expect(player.playlistFolderId).toBeUndefined()
+      expect(player.currentAudioInfo?.id).toBe(2)
+      expect(player.playState).toBe(PlayState.Playing)
+      playNextAudio()
+      expect(useAudioStore.getState().currentAudioInfo?.id).toBe(1)
+    } finally {
+      random.mockRestore()
+    }
+  }
+)
+
 test.each([false, true])(
   'play all network songs preserves playback for an empty list (no folders: %s)',
   async noFolders => {
