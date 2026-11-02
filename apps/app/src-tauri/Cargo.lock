@@ -4898,7 +4898,7 @@ dependencies = [
 
 [[package]]
 name = "ying-audio-player"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "lofty",
  "rusqlite",
