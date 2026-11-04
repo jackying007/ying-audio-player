@@ -1,3 +1,4 @@
+import { isIOS } from '@/lib/platform'
 import { Outlet } from '@tanstack/react-router'
 import { Toaster } from '@/components/ui/sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
@@ -17,7 +18,7 @@ export function AppLayout() {
     <TooltipProvider>
       <AndroidNavigation />
       <Toaster />
-      <SidebarProvider>
+      <SidebarProvider className={isIOS ? 'pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]' : undefined}>
         <AppSidebar />
         <SidebarInset className="h-svh">
           <AppHeader />
@@ -26,7 +27,7 @@ export function AppLayout() {
             <LocalAudioStatus />
             <Outlet />
           </main>
-          {playerOpen && <div className="h-20 " />}
+          {playerOpen && <div className={isIOS ? 'h-[calc(5rem+env(safe-area-inset-bottom))] shrink-0' : 'h-20'} />}
         </SidebarInset>
         <AudioPlayer />
       </SidebarProvider>

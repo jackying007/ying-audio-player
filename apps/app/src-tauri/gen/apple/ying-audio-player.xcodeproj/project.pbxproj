@@ -1,0 +1,494 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		0DA17C306CD385CEEB044734 /* main.mm in Sources */ = {isa = PBXBuildFile; fileRef = 661383BEDD5B0C410396B24F /* main.mm */; };
+		223D7463227F5BCA0954843F /* QuartzCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 8338CD6CB647D0D9CFFDF944 /* QuartzCore.framework */; };
+		26F4E88109B31598BB125CE8 /* Security.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 3FB0F68355DA4836B1738C63 /* Security.framework */; };
+		29901A62C2332CA6054A8301 /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 03068DD65CF4B3FA89E5F205 /* LaunchScreen.storyboard */; };
+		5C0373F76FFFF61BB2419266 /* assets in Resources */ = {isa = PBXBuildFile; fileRef = 8E8805C0791B8FB2EEBF9F23 /* assets */; };
+		6AD0EE7D97B801A17A4572C0 /* CoreGraphics.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 59B1291D7FBB6A91B7449E26 /* CoreGraphics.framework */; };
+		8A3D20A275235457FAEAE0F6 /* Metal.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 06119CC697BCFB6A9BEB25D7 /* Metal.framework */; };
+		9F3B9FF3664E846F0480DF49 /* UIKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = EA1687E69A9E7F63CED0279A /* UIKit.framework */; };
+		AE68A5876B49DCC2E5B40472 /* MetalKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 5BB09E7927C522E3ADB6CA72 /* MetalKit.framework */; };
+		C020101EF2D0087152C28ACF /* libapp.a in Frameworks */ = {isa = PBXBuildFile; fileRef = C5604A377637B8D182AE2943 /* libapp.a */; };
+		F2F295D3A159DAC4ED2CB22F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 2D3968E745A5251A27A2EA9B /* Assets.xcassets */; };
+		FA236EF4D06A7E8956CCCC88 /* WebKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = B9F733FC4FB0BFC2290DB365 /* WebKit.framework */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		03068DD65CF4B3FA89E5F205 /* LaunchScreen.storyboard */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; path = LaunchScreen.storyboard; sourceTree = "<group>"; };
+		06119CC697BCFB6A9BEB25D7 /* Metal.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Metal.framework; path = System/Library/Frameworks/Metal.framework; sourceTree = SDKROOT; };
+		0EE34A2CC54545459E6D3CC2 /* ying-audio-player_iOS.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = "ying-audio-player_iOS.entitlements"; sourceTree = "<group>"; };
+		2D3968E745A5251A27A2EA9B /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		3FB0F68355DA4836B1738C63 /* Security.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Security.framework; path = System/Library/Frameworks/Security.framework; sourceTree = SDKROOT; };
+		59B1291D7FBB6A91B7449E26 /* CoreGraphics.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreGraphics.framework; path = System/Library/Frameworks/CoreGraphics.framework; sourceTree = SDKROOT; };
+		5BB09E7927C522E3ADB6CA72 /* MetalKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = MetalKit.framework; path = System/Library/Frameworks/MetalKit.framework; sourceTree = SDKROOT; };
+		661383BEDD5B0C410396B24F /* main.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = main.mm; sourceTree = "<group>"; };
+		715FE3A29F9333BAF470704C /* network_cache.rs */ = {isa = PBXFileReference; lastKnownFileType = text; path = network_cache.rs; sourceTree = "<group>"; };
+		72F51E46FE7A804AEA12E4FA /* local_audio.rs */ = {isa = PBXFileReference; lastKnownFileType = text; path = local_audio.rs; sourceTree = "<group>"; };
+		8338CD6CB647D0D9CFFDF944 /* QuartzCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = QuartzCore.framework; path = System/Library/Frameworks/QuartzCore.framework; sourceTree = SDKROOT; };
+		8E8805C0791B8FB2EEBF9F23 /* assets */ = {isa = PBXFileReference; lastKnownFileType = folder; path = assets; sourceTree = SOURCE_ROOT; };
+		9A97CF272E4C20E2CB750B01 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		A5BA4F2E690136FA4D4A1B83 /* bindings.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = bindings.h; sourceTree = "<group>"; };
+		B9F733FC4FB0BFC2290DB365 /* WebKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WebKit.framework; path = System/Library/Frameworks/WebKit.framework; sourceTree = SDKROOT; };
+		C5604A377637B8D182AE2943 /* libapp.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libapp.a; sourceTree = "<group>"; };
+		D3C1D1AC7F2FB7CDFEDE7129 /* mobile_files.rs */ = {isa = PBXFileReference; lastKnownFileType = text; path = mobile_files.rs; sourceTree = "<group>"; };
+		D422B2E13B4B9086A3C2145C /* 嘤嘤播放器.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "嘤嘤播放器.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		D77F55831AF99B7F28B100F5 /* lib.rs */ = {isa = PBXFileReference; lastKnownFileType = text; path = lib.rs; sourceTree = "<group>"; };
+		DCA9FABD96FE5BA26272392A /* storage.rs */ = {isa = PBXFileReference; lastKnownFileType = text; path = storage.rs; sourceTree = "<group>"; };
+		EA1687E69A9E7F63CED0279A /* UIKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UIKit.framework; path = System/Library/Frameworks/UIKit.framework; sourceTree = SDKROOT; };
+		FEC10F104DACA6D53587EE4E /* main.rs */ = {isa = PBXFileReference; lastKnownFileType = text; path = main.rs; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		3D78613099AAB3F061B47552 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				C020101EF2D0087152C28ACF /* libapp.a in Frameworks */,
+				6AD0EE7D97B801A17A4572C0 /* CoreGraphics.framework in Frameworks */,
+				8A3D20A275235457FAEAE0F6 /* Metal.framework in Frameworks */,
+				AE68A5876B49DCC2E5B40472 /* MetalKit.framework in Frameworks */,
+				223D7463227F5BCA0954843F /* QuartzCore.framework in Frameworks */,
+				26F4E88109B31598BB125CE8 /* Security.framework in Frameworks */,
+				9F3B9FF3664E846F0480DF49 /* UIKit.framework in Frameworks */,
+				FA236EF4D06A7E8956CCCC88 /* WebKit.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		04FCFEF9F1FC070405C864B5 /* local_audio */ = {
+			isa = PBXGroup;
+			children = (
+				D3C1D1AC7F2FB7CDFEDE7129 /* mobile_files.rs */,
+			);
+			path = local_audio;
+			sourceTree = "<group>";
+		};
+		2114B25AE2BF5BB467500439 /* Externals */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			path = Externals;
+			sourceTree = "<group>";
+		};
+		4B17825FECA21FDB4FE6915D /* ying-audio-player_iOS */ = {
+			isa = PBXGroup;
+			children = (
+				9A97CF272E4C20E2CB750B01 /* Info.plist */,
+				0EE34A2CC54545459E6D3CC2 /* ying-audio-player_iOS.entitlements */,
+			);
+			path = "ying-audio-player_iOS";
+			sourceTree = "<group>";
+		};
+		57EFF32AD1482BFBF803268B /* Sources */ = {
+			isa = PBXGroup;
+			children = (
+				D348063A50B1A350FA8F92CA /* ying-audio-player */,
+			);
+			path = Sources;
+			sourceTree = "<group>";
+		};
+		A42501A60D2571D831A30272 /* src */ = {
+			isa = PBXGroup;
+			children = (
+				D77F55831AF99B7F28B100F5 /* lib.rs */,
+				72F51E46FE7A804AEA12E4FA /* local_audio.rs */,
+				FEC10F104DACA6D53587EE4E /* main.rs */,
+				715FE3A29F9333BAF470704C /* network_cache.rs */,
+				DCA9FABD96FE5BA26272392A /* storage.rs */,
+				04FCFEF9F1FC070405C864B5 /* local_audio */,
+			);
+			name = src;
+			path = ../../src;
+			sourceTree = "<group>";
+		};
+		B4D7A1E7C5C0DD5247ABE2C3 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				D422B2E13B4B9086A3C2145C /* 嘤嘤播放器.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		BF0C221EFBE35BB071F5196F = {
+			isa = PBXGroup;
+			children = (
+				8E8805C0791B8FB2EEBF9F23 /* assets */,
+				2D3968E745A5251A27A2EA9B /* Assets.xcassets */,
+				03068DD65CF4B3FA89E5F205 /* LaunchScreen.storyboard */,
+				2114B25AE2BF5BB467500439 /* Externals */,
+				57EFF32AD1482BFBF803268B /* Sources */,
+				A42501A60D2571D831A30272 /* src */,
+				4B17825FECA21FDB4FE6915D /* ying-audio-player_iOS */,
+				C7B922467EEC33B02083DFEA /* Frameworks */,
+				B4D7A1E7C5C0DD5247ABE2C3 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		C7B922467EEC33B02083DFEA /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				59B1291D7FBB6A91B7449E26 /* CoreGraphics.framework */,
+				C5604A377637B8D182AE2943 /* libapp.a */,
+				06119CC697BCFB6A9BEB25D7 /* Metal.framework */,
+				5BB09E7927C522E3ADB6CA72 /* MetalKit.framework */,
+				8338CD6CB647D0D9CFFDF944 /* QuartzCore.framework */,
+				3FB0F68355DA4836B1738C63 /* Security.framework */,
+				EA1687E69A9E7F63CED0279A /* UIKit.framework */,
+				B9F733FC4FB0BFC2290DB365 /* WebKit.framework */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		D348063A50B1A350FA8F92CA /* ying-audio-player */ = {
+			isa = PBXGroup;
+			children = (
+				661383BEDD5B0C410396B24F /* main.mm */,
+				DDC91E13263B3365367EF81A /* bindings */,
+			);
+			path = "ying-audio-player";
+			sourceTree = "<group>";
+		};
+		DDC91E13263B3365367EF81A /* bindings */ = {
+			isa = PBXGroup;
+			children = (
+				A5BA4F2E690136FA4D4A1B83 /* bindings.h */,
+			);
+			path = bindings;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		3D2AF435BA6DDC631A5ACC47 /* ying-audio-player_iOS */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 0905707C9B6DAE0A9AC5B8CF /* Build configuration list for PBXNativeTarget "ying-audio-player_iOS" */;
+			buildPhases = (
+				8FC9BC799413ECFB2F7B96A8 /* Build Rust Code */,
+				7721DD5D346059630F2073D5 /* Sources */,
+				BF894F9671AB4FA6C3A59E40 /* Resources */,
+				3D78613099AAB3F061B47552 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = "ying-audio-player_iOS";
+			packageProductDependencies = (
+			);
+			productName = "ying-audio-player_iOS";
+			productReference = D422B2E13B4B9086A3C2145C /* 嘤嘤播放器.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		8CAFAF497A78AB4D359D475B /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+			};
+			buildConfigurationList = 8A1D0590D06C2FD7FBA4EE4E /* Build configuration list for PBXProject "ying-audio-player" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = BF0C221EFBE35BB071F5196F;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = B4D7A1E7C5C0DD5247ABE2C3 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				3D2AF435BA6DDC631A5ACC47 /* ying-audio-player_iOS */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		BF894F9671AB4FA6C3A59E40 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				F2F295D3A159DAC4ED2CB22F /* Assets.xcassets in Resources */,
+				29901A62C2332CA6054A8301 /* LaunchScreen.storyboard in Resources */,
+				5C0373F76FFFF61BB2419266 /* assets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		8FC9BC799413ECFB2F7B96A8 /* Build Rust Code */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Build Rust Code";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(SRCROOT)/Externals/x86_64/${CONFIGURATION}/libapp.a",
+				"$(SRCROOT)/Externals/arm64/${CONFIGURATION}/libapp.a",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "export PATH=\"$HOME/.bun/bin:$HOME/.cargo/bin:/opt/homebrew/bin:$PATH\"\nbun --bun tauri ios xcode-script -v --platform \"${PLATFORM_DISPLAY_NAME:?}\" --sdk-root \"${SDKROOT:?}\" --framework-search-paths \"${FRAMEWORK_SEARCH_PATHS:?}\" --header-search-paths \"${HEADER_SEARCH_PATHS:?}\" --gcc-preprocessor-definitions \"${GCC_PREPROCESSOR_DEFINITIONS:-}\" --configuration \"${CONFIGURATION:?}\" ${FORCE_COLOR} ${ARCHS:?}\n";
+		};
+/* End PBXShellScriptBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		7721DD5D346059630F2073D5 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				0DA17C306CD385CEEB044734 /* main.mm in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		48BCA1D03A615B5CD5D9D9A5 /* debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.4;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = debug;
+		};
+		566BB3A724DF88B8FA26EB7E /* release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
+				ARCHS = arm64;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = "ying-audio-player_iOS/ying-audio-player_iOS.entitlements";
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				ENABLE_BITCODE = NO;
+				"EXCLUDED_ARCHS[sdk=iphoneos*]" = x86_64;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"\".\"",
+				);
+				INFOPLIST_FILE = "ying-audio-player_iOS/Info.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				"LIBRARY_SEARCH_PATHS[arch=arm64]" = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/Externals/arm64/$(CONFIGURATION)",
+					"$(SDKROOT)/usr/lib/swift",
+					"$(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/$(PLATFORM_NAME)",
+					"$(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift-5.0/$(PLATFORM_NAME)",
+				);
+				"LIBRARY_SEARCH_PATHS[arch=x86_64]" = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/Externals/x86_64/$(CONFIGURATION)",
+					"$(SDKROOT)/usr/lib/swift",
+					"$(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/$(PLATFORM_NAME)",
+					"$(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift-5.0/$(PLATFORM_NAME)",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = ying.audio.player;
+				PRODUCT_NAME = "嘤嘤播放器";
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VALID_ARCHS = arm64;
+			};
+			name = release;
+		};
+		6AEFA0541BED11E3839716C3 /* debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
+				ARCHS = arm64;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = "ying-audio-player_iOS/ying-audio-player_iOS.entitlements";
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				ENABLE_BITCODE = NO;
+				"EXCLUDED_ARCHS[sdk=iphoneos*]" = x86_64;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"\".\"",
+				);
+				INFOPLIST_FILE = "ying-audio-player_iOS/Info.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				"LIBRARY_SEARCH_PATHS[arch=arm64]" = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/Externals/arm64/$(CONFIGURATION)",
+					"$(SDKROOT)/usr/lib/swift",
+					"$(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/$(PLATFORM_NAME)",
+					"$(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift-5.0/$(PLATFORM_NAME)",
+				);
+				"LIBRARY_SEARCH_PATHS[arch=x86_64]" = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/Externals/x86_64/$(CONFIGURATION)",
+					"$(SDKROOT)/usr/lib/swift",
+					"$(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/$(PLATFORM_NAME)",
+					"$(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift-5.0/$(PLATFORM_NAME)",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = ying.audio.player;
+				PRODUCT_NAME = "嘤嘤播放器";
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VALID_ARCHS = arm64;
+			};
+			name = debug;
+		};
+		C319135ED57901E337CAFEA2 /* release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.4;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+			};
+			name = release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		0905707C9B6DAE0A9AC5B8CF /* Build configuration list for PBXNativeTarget "ying-audio-player_iOS" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				6AEFA0541BED11E3839716C3 /* debug */,
+				566BB3A724DF88B8FA26EB7E /* release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = debug;
+		};
+		8A1D0590D06C2FD7FBA4EE4E /* Build configuration list for PBXProject "ying-audio-player" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				48BCA1D03A615B5CD5D9D9A5 /* debug */,
+				C319135ED57901E337CAFEA2 /* release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 8CAFAF497A78AB4D359D475B /* Project object */;
+}

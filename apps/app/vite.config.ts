@@ -7,6 +7,7 @@ const host = process.env.TAURI_DEV_HOST
 
 // https://vite.dev/config/
 export default defineConfig(() => ({
+  build: { target: ['chrome111', 'edge111', 'firefox114', 'safari16.4'] },
   resolve: {
     tsconfigPaths: true
   },

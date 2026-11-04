@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core'
 import { readFile, readTextFile } from '@tauri-apps/plugin-fs'
 import { fileHash } from './file-hash'
-import { isAndroid } from './platform'
+import { isMobile } from './platform'
 import { useNetworkSettings } from '@/store/network-settings'
 import type { AudioInfo } from '@/store/audio-store'
 
@@ -61,11 +61,11 @@ let pendingWrite: Promise<void> = Promise.resolve()
 const CACHE_CHUNK_SIZE = 64 * 1024
 
 async function sendCachePayload(payload: ArrayBuffer) {
-  if (!isAndroid) {
+  if (!isMobile) {
     await invoke<void>('plugin:network-cache|save_cache', payload)
     return
   }
-  // Android IPC uses JSON postMessage, even when invoke receives an ArrayBuffer.
+  // Mobile WebViews can use JSON IPC for an ArrayBuffer request.
   // Bound each array conversion and yield to the WebView between native callbacks.
   const rid = await invoke<number>('plugin:network-cache|begin_cache_write', { size: payload.byteLength })
   let finished = false
@@ -87,7 +87,7 @@ export function saveNetworkCache(key: NetworkCacheKey, audio: Blob, lrc?: string
     const metadata = new TextEncoder().encode(JSON.stringify({ key, lyrics: key.hasLyrics ? lrc : null }))
     const size = new ArrayBuffer(4)
     new DataView(size).setUint32(0, metadata.byteLength, true)
-    // Desktop uses raw binary; Android sends bounded JSON chunks over its native bridge.
+    // The mobile bridge writes bounded JSON chunks.
     const payload = await new Blob([size, metadata, audio]).arrayBuffer()
     await sendCachePayload(payload)
   })

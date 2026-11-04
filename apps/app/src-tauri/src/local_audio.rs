@@ -12,8 +12,18 @@ use tauri::Manager;
 
 type Result<T> = std::result::Result<T, String>;
 
-#[cfg(target_os = "android")]
-mod android;
+#[cfg(any(target_os = "android", target_os = "ios"))]
+mod mobile_files;
+
+#[cfg(any(target_os = "android", target_os = "ios", test))]
+struct TemporaryFile(PathBuf);
+
+#[cfg(any(target_os = "android", target_os = "ios", test))]
+impl Drop for TemporaryFile {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.0);
+    }
+}
 
 pub fn init() -> tauri::plugin::TauriPlugin<tauri::Wry> {
     tauri::plugin::Builder::new("local-audio")
@@ -354,7 +364,7 @@ fn scan_file(path: &Path) -> ScannedAudio {
     audio
 }
 
-#[cfg(any(not(target_os = "android"), test))]
+#[cfg(any(not(any(target_os = "android", target_os = "ios")), test))]
 fn scan_directory(path: &Path) -> Result<Vec<ScannedAudio>> {
     let entries = fs::read_dir(path).map_err(|e| format!("无法读取文件夹：{e}"))?;
     let mut audios = Vec::new();
@@ -372,7 +382,7 @@ fn scan_directory(path: &Path) -> Result<Vec<ScannedAudio>> {
     Ok(audios)
 }
 
-#[cfg(any(not(target_os = "android"), test))]
+#[cfg(any(not(any(target_os = "android", target_os = "ios")), test))]
 fn save_scan(db: &mut Connection, path: &str, audios: &[ScannedAudio]) -> Result<ScanResult> {
     let name = Path::new(path)
         .file_name()
@@ -440,7 +450,7 @@ fn save_named_scan(
     Ok(ScanResult { folder, warnings })
 }
 
-#[cfg(any(not(target_os = "android"), test))]
+#[cfg(any(not(any(target_os = "android", target_os = "ios")), test))]
 fn index_folder(db: &mut Connection, state: &LocalAudioState, path: &Path) -> Result<ScanResult> {
     let canonical = fs::canonicalize(path).map_err(|e| format!("无法打开文件夹：{e}"))?;
     let path = display_path(&canonical);
@@ -463,7 +473,7 @@ fn index_folder(db: &mut Connection, state: &LocalAudioState, path: &Path) -> Re
     save_scan(db, &path, &audios)
 }
 
-#[cfg(any(not(target_os = "android"), test))]
+#[cfg(any(not(any(target_os = "android", target_os = "ios")), test))]
 fn reindex_folder(
     db: &mut Connection,
     state: &LocalAudioState,
@@ -477,7 +487,7 @@ fn reindex_folder(
     save_scan(db, &folder.link, &audios)
 }
 
-#[cfg(any(not(target_os = "android"), test))]
+#[cfg(any(not(any(target_os = "android", target_os = "ios")), test))]
 fn remove_indexed_folder(db: &Connection, state: &LocalAudioState, folder_id: i64) -> Result<()> {
     remove_indexed_folder_with(db, state, folder_id, |_| {})
 }
@@ -521,11 +531,11 @@ pub async fn import_folder(
     let database = database_path(&app)?;
     let state = state.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
-        #[cfg(target_os = "android")]
+        #[cfg(any(target_os = "android", target_os = "ios"))]
         {
-            android::index(&app, &mut open_database(&database)?, &state, &path, false)
+            mobile_files::index(&app, &mut open_database(&database)?, &state, &path, false)
         }
-        #[cfg(not(target_os = "android"))]
+        #[cfg(not(any(target_os = "android", target_os = "ios")))]
         {
             index_folder(&mut open_database(&database)?, &state, Path::new(&path))
         }
@@ -543,13 +553,13 @@ pub async fn refresh_folder(
     let database = database_path(&app)?;
     let state = state.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
-        #[cfg(target_os = "android")]
+        #[cfg(any(target_os = "android", target_os = "ios"))]
         {
             let mut db = open_database(&database)?;
             let folder = get_folder(&db, folder_id)?;
-            android::index(&app, &mut db, &state, &folder.link, true)
+            mobile_files::index(&app, &mut db, &state, &folder.link, true)
         }
-        #[cfg(not(target_os = "android"))]
+        #[cfg(not(any(target_os = "android", target_os = "ios")))]
         {
             reindex_folder(&mut open_database(&database)?, &state, folder_id)
         }
@@ -568,14 +578,13 @@ pub async fn remove_folder(
     let state = state.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
         let db = open_database(&database)?;
-        #[cfg(target_os = "android")]
+        #[cfg(any(target_os = "android", target_os = "ios"))]
         {
-            use tauri_plugin_android_files::AndroidFilesExt;
             remove_indexed_folder_with(&db, &state, folder_id, |uri| {
-                let _ = app.android_files().release(uri);
+                let _ = mobile_files::release(&app, uri);
             })
         }
-        #[cfg(not(target_os = "android"))]
+        #[cfg(not(any(target_os = "android", target_os = "ios")))]
         {
             remove_indexed_folder(&db, &state, folder_id)
         }
@@ -602,16 +611,13 @@ pub async fn get_cover(app: tauri::AppHandle, audio_id: i64) -> Result<Option<Co
 
 #[tauri::command]
 pub async fn pick_folder(app: tauri::AppHandle) -> Result<Option<String>> {
-    #[cfg(target_os = "android")]
+    #[cfg(any(target_os = "android", target_os = "ios"))]
     {
-        use tauri_plugin_android_files::AndroidFilesExt;
-        tauri::async_runtime::spawn_blocking(move || {
-            app.android_files().pick_folder().map(|result| result.uri)
-        })
-        .await
-        .map_err(db_error)?
+        tauri::async_runtime::spawn_blocking(move || mobile_files::pick_folder(&app))
+            .await
+            .map_err(db_error)?
     }
-    #[cfg(not(target_os = "android"))]
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
     {
         let _ = app;
         Err("桌面端请使用系统文件夹选择器".into())
@@ -642,9 +648,9 @@ async fn read_indexed_file(
     let database = database_path(&app)?;
     tauri::async_runtime::spawn_blocking(move || {
         let path = indexed_file(&open_database(&database)?, audio_id, lyrics)?;
-        #[cfg(target_os = "android")]
-        let temporary = android::materialize(&app, &path)?;
-        #[cfg(target_os = "android")]
+        #[cfg(any(target_os = "android", target_os = "ios"))]
+        let temporary = mobile_files::materialize(&app, &path)?;
+        #[cfg(any(target_os = "android", target_os = "ios"))]
         let path = &temporary.0;
         fs::read(path)
             .map(tauri::ipc::Response::new)
@@ -673,6 +679,19 @@ mod tests {
         tag::{Tag, TagExt, TagType},
     };
     use std::sync::atomic::{AtomicUsize, Ordering};
+
+    #[test]
+    fn temporary_mobile_read_is_cleaned_up_on_error() {
+        let fixture = Fixture::new();
+        let path = fixture.0.join("materialized.mp3");
+        fs::write(&path, b"music").unwrap();
+        let read = || -> Result<()> {
+            let _copy = TemporaryFile(path.clone());
+            Err("read failed".into())
+        };
+        assert!(read().is_err());
+        assert!(!path.exists());
+    }
 
     struct Fixture(PathBuf);
 

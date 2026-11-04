@@ -98,6 +98,8 @@ export const usePlayerOpen = () => {
 }
 
 const audio = new Audio()
+const PLAYBACK_GESTURE_REQUIRED = '请点按播放按钮继续'
+const needsPlaybackGesture = (error: unknown) => error instanceof DOMException && error.name === 'NotAllowedError'
 
 type CachedData = {
   objectUrl: string
@@ -342,7 +344,10 @@ const startAudio = async (audioInfo: AudioInfo, playlist?: Pick<AudioStore, 'aud
     if (request !== playRequest) return false
     useAudioStore.setState({
       playState: PlayState.Paused,
-      error: `无法播放“${audioInfo.title ?? audioInfo.name}”：${String(error)}`
+      error:
+        audio.src && needsPlaybackGesture(error)
+          ? PLAYBACK_GESTURE_REQUIRED
+          : `无法播放“${audioInfo.title ?? audioInfo.name}”：${String(error)}`
     })
     return false
   } finally {
@@ -353,16 +358,28 @@ const startAudio = async (audioInfo: AudioInfo, playlist?: Pick<AudioStore, 'aud
 export const replayAudio = async () => {
   const state = useAudioStore.getState()
   if (!state.currentAudioInfo) return
-  if (state.error || state.playState === PlayState.None || audio.ended || !audio.src) {
+  if (
+    (state.error && state.error !== PLAYBACK_GESTURE_REQUIRED) ||
+    state.playState === PlayState.None ||
+    audio.ended ||
+    !audio.src
+  ) {
     await startAudio(state.currentAudioInfo)
     return
   }
   const request = playRequest
   try {
     if (audio.paused) await audio.play()
+    if (request !== playRequest) return
+    useAudioStore.setState({ error: undefined })
+    const cached = cachedMap.get(state.currentAudioInfo.link)
+    if (cached && cached.objectUrl === activeUrl) saveInBackground(state.currentAudioInfo.link, cached)
   } catch (error) {
     if (request !== playRequest) return
-    useAudioStore.setState({ error: `无法继续播放：${String(error)}`, playState: PlayState.Paused })
+    useAudioStore.setState({
+      error: needsPlaybackGesture(error) ? PLAYBACK_GESTURE_REQUIRED : `无法继续播放：${String(error)}`,
+      playState: PlayState.Paused
+    })
   }
 }
 

@@ -1,3 +1,4 @@
+import { isIOS } from '@/lib/platform'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Pause,
@@ -87,7 +88,10 @@ export function Controller() {
     <div
       className={cn(
         'fixed -bottom-22 left-0 w-full h-20 z-20 bg-white transition-all',
-        showMode !== ShowMode.Hide && 'bottom-0'
+        showMode !== ShowMode.Hide && 'bottom-0',
+        isIOS &&
+          'h-[calc(5rem+env(safe-area-inset-bottom))] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]',
+        isIOS && showMode === ShowMode.Hide && '-bottom-[calc(5.5rem+env(safe-area-inset-bottom))]'
       )}
     >
       <Slider

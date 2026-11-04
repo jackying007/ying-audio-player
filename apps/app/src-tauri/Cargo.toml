@@ -30,6 +30,8 @@ rusqlite = { version = "0.40", features = ["bundled"] }
 [target.'cfg(target_os = "android")'.dependencies]
 tauri-plugin-android-files = { path = "plugins/android-files" }
 
+[target.'cfg(target_os = "ios")'.dependencies]
+tauri-plugin-ios-files = { path = "plugins/ios-files" }
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
 [profile.release]

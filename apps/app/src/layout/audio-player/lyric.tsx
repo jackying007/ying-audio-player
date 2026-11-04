@@ -1,3 +1,4 @@
+import { isIOS } from '@/lib/platform'
 import { useEffect, useMemo, useRef } from 'react'
 import { cn } from 'cn'
 import { Badge } from '@/components/ui/badge'
@@ -100,7 +101,8 @@ export function Lyric() {
     <div
       className={cn(
         'fixed -bottom-full left-0 w-full h-full z-10 bg-accent transition-all duration-200 flex flex-col',
-        showMode === ShowMode.Fullscreen && 'bottom-0'
+        showMode === ShowMode.Fullscreen && 'bottom-0',
+        isIOS && 'pt-[env(safe-area-inset-top)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]'
       )}
     >
       <div className="flex-1 h-0 w-full overflow-y-auto overflow-x-hidden" ref={scrolleWrapRef} onScroll={onLrcScroll}>

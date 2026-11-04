@@ -8,7 +8,12 @@ pub fn root(app: &tauri::AppHandle) -> Result<PathBuf, String> {
         std::fs::create_dir_all(&path).map_err(|e| e.to_string())?;
         Ok(path)
     }
-    #[cfg(not(target_os = "android"))]
+    #[cfg(target_os = "ios")]
+    {
+        use tauri_plugin_ios_files::IosFilesExt;
+        app.ios_files().storage_root()
+    }
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
     {
         let _ = app;
         let executable = std::env::current_exe().map_err(|e| e.to_string())?;

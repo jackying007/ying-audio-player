@@ -1,0 +1,12 @@
+{
+  "identifier": "ios-cache",
+  "description": "Chunked cache writes in the iOS WebView",
+  "platforms": ["iOS"],
+  "windows": ["main"],
+  "permissions": [
+    "network-cache:allow-begin-cache-write",
+    "network-cache:allow-write-cache-chunk",
+    "network-cache:allow-finish-cache-write",
+    "network-cache:allow-abort-cache-write"
+  ]
+}

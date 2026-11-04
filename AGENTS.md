@@ -2,7 +2,7 @@
 
 ## 项目与入口
 
-Bun workspace + Turborepo，包含 Tauri 桌面/Android 播放器和 Cloudflare 音乐服务。本地播放独立可用；网络功能提供文件夹同步、增量上传和播放。功能与启动说明统一维护在本文件。
+Bun workspace + Turborepo，包含 Tauri 桌面/Android/iOS 播放器和 Cloudflare 音乐服务。本地播放独立可用；网络功能提供文件夹同步、增量上传和播放。功能与启动说明统一维护在本文件。
 
 - `apps/app`：Tauri 2、React 19、TypeScript、Vite、TanStack Router、Zustand、Tailwind CSS 4、shadcn/Radix。
 - 本地索引：`apps/app/src-tauri/src/local_audio.rs`；IPC：`src/lib/local-audio.ts`；文件夹与扫描：`src/store/app-store.ts`、`local-audio-store.ts`。
@@ -66,6 +66,14 @@ Tauri 自动启动 Vite 并打开窗口。Vite 固定使用 `http://localhost:14
 - Android 的 Tauri IPC 请求走 JSON，不能把整首音频作为 raw `ArrayBuffer` 发给只接受二进制请求的命令。网络缓存使用最多 64 KiB 的有序数据块，收齐并校验总长度后复用现有保存流程；失败释放传输资源，完成标记发布前不视为可用缓存。桌面继续使用 raw 二进制 IPC。
 - 播放继续使用 WebView `Audio`，本次不提供通知栏/锁屏控制或可靠后台连续播放。返回键先关闭弹层与侧栏，再收起全屏歌词，再返回历史页面，无历史时退出 App。
 - 原生代码测试：完成一次 Tauri Android 构建生成依赖配置后，在 `src-tauri/gen/android` 执行 `./gradlew.bat :tauri-plugin-android-files:testDebugUnitTest`；这些 JVM 单元测试不启动 App 或模拟器。改动 Kotlin、Rust、IPC 后同步检查两端类型和 capabilities。
+
+### iOS
+
+- 支持 iOS 16.4 及以上的 iPhone、iPad。使用 macOS 完整 Xcode（含 iOS SDK 和模拟器）、XcodeGen、CocoaPods、libimobiledevice，并安装 `aarch64-apple-ios` 与 `aarch64-apple-ios-sim` Rust targets（Intel Mac 的模拟器使用 `x86_64-apple-ios`）。在 `apps/app` 运行 `bun run ios:init` 初始化缺失的工程，`bun run ios:dev` 开发，`bun run ios:build` 打包。真机签名在本地配置 Xcode 开发团队或设置 `APPLE_DEVELOPMENT_TEAM`。
+- 模拟器可用 `http://localhost:8787` 访问本机 Worker。真机 Vite 热更新使用 `bun run ios:dev --host`（Vite 读取 Tauri 提供的 `TAURI_DEV_HOST`）；联调默认 CORS 的 Worker 时使用模拟器 localhost 或安装已构建的 App。真机访问局域网 Worker 时使 Worker 监听局域网地址，App 填写 Mac 的局域网地址及端口，并允许 iOS 的局域网访问提示。内置 WebView 允许用户配置 HTTP 或 HTTPS；发布版 Tauri 来源已由 Worker 放行。
+- 通过系统「文件」选择音乐文件夹，仅扫描直接子文件。Swift 插件 `src-tauri/plugins/ios-files` 保存目录授权书签并协调读取，Rust 负责索引。授权失效后重新选择原文件夹恢复访问；刷新失败保留旧索引；移除导入记录释放授权书签并保留原文件。
+- SQLite、授权书签、`network` 和 `.network-cache` 位于应用沙盒的 `Library/Application Support/YingAudioPlayer`，两个缓存目录排除系统备份。歌曲单击播放，音频继续通过 WebView 前台播放，移动缓存写入沿用分块 IPC。iOS 未配置后台连续播放或锁屏控制。
+- 书签和文件扫描逻辑可用 macOS 主机上的 Swift 测试验证。在 `apps/app` 执行 `ios_plugin=src-tauri/plugins/ios-files/ios; swiftc "$ios_plugin/Sources/FolderAccess.swift" "$ios_plugin/Tests/FolderAccessTests.swift" -o /tmp/ying-ios-folder-access-tests && /tmp/ying-ios-folder-access-tests`。系统选择器与实际安全作用域由 iOS 真机验证。
 
 ## 音乐与同步约定
 

@@ -1,6 +1,6 @@
 import { invoke } from '@tauri-apps/api/core'
 import { open } from '@tauri-apps/plugin-dialog'
-import { isAndroid } from './platform'
+import { isMobile } from './platform'
 import type { AudioInfo } from '@/store/audio-store'
 
 export type LocalAudioFolder = {
@@ -24,11 +24,11 @@ export type LocalAudioCover = {
 
 export const localAudio = {
   pickFolder: () =>
-    isAndroid ? invoke<string | null>('plugin:local-audio|pick_folder') : open({ multiple: false, directory: true }),
+    isMobile ? invoke<string | null>('plugin:local-audio|pick_folder') : open({ multiple: false, directory: true }),
   readAudio: async (audioId: number) =>
-    new Uint8Array(await invoke<ArrayBuffer>('plugin:local-audio|read_audio', { audioId })),
+    new Uint8Array(await invoke<ArrayBuffer | number[]>('plugin:local-audio|read_audio', { audioId })),
   readLyrics: async (audioId: number) =>
-    new Uint8Array(await invoke<ArrayBuffer>('plugin:local-audio|read_lyrics', { audioId })),
+    new Uint8Array(await invoke<ArrayBuffer | number[]>('plugin:local-audio|read_lyrics', { audioId })),
   listFolders: () => invoke<LocalAudioFolder[]>('plugin:local-audio|list_folders'),
   importFolder: (path: string) => invoke<ScanResult>('plugin:local-audio|import_folder', { path }),
   listAudios: (folderId: number) => invoke<LocalAudioInfo[]>('plugin:local-audio|list_audios', { folderId }),

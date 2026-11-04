@@ -13,11 +13,15 @@
     "windows:build": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-windows.ps1",
     "android:init": "tauri android init --ci --skip-targets-install",
     "android:dev": "tauri android dev --host 127.0.0.1",
-    "android:build": "tauri android build --target aarch64 --apk"
+    "android:build": "tauri android build --target aarch64 --apk",
+    "ios:init": "tauri ios init --ci --skip-targets-install",
+    "ios:dev": "tauri ios dev",
+    "ios:build": "tauri ios build"
   },
   "dependencies": {
     "@fontsource-variable/inter": "^5.3.0",
     "@jying/http": "^1.1.0",
+    "@noble/hashes": "^2.0.0",
     "@tanstack/react-router": "^1.170.44",
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-dialog": "^2",

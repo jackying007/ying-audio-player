@@ -23,7 +23,7 @@ import { useNetworkSettings } from '@/store/network-settings'
 import { LocalFolderItem } from './local-folder-item'
 import { NetworkFolderItem } from './network-folder-item'
 import { connectionSignal } from '@/api'
-import { isAndroid } from '@/lib/platform'
+import { isIOS, isMobile as isMobilePlatform } from '@/lib/platform'
 
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const pathname = useLocation({ select: location => location.pathname })
@@ -89,7 +89,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
 
   return (
     <Sidebar {...props}>
-      {isAndroid && (
+      {isMobilePlatform && (
         <div
           aria-hidden="true"
           className="shrink-0"
@@ -220,7 +220,9 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
           </SidebarMenuItem>
         </SidebarMenu>
       </SidebarFooter>
-      {!isMobile && playerOpen && <div className="h-20 shrink-0" />}
+      {!isMobile && playerOpen && (
+        <div className={isIOS ? 'h-[calc(5rem+env(safe-area-inset-bottom))] shrink-0' : 'h-20 shrink-0'} />
+      )}
     </Sidebar>
   )
 }

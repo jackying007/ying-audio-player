@@ -1,7 +1,10 @@
 import { mock } from 'bun:test'
 import assert from 'node:assert/strict'
 
-Object.defineProperty(globalThis, 'navigator', { configurable: true, value: { userAgent: 'Android' } })
+Object.defineProperty(globalThis, 'navigator', {
+  configurable: true,
+  value: { userAgent: process.argv[3] === 'ios' ? 'iPhone' : 'Android' }
+})
 mock.module('@tauri-apps/plugin-fs', () => ({ readFile: async () => {}, readTextFile: async () => {} }))
 mock.module('../../src/store/network-settings', () => ({ useNetworkSettings: { getState: () => ({}) } }))
 
@@ -15,7 +18,7 @@ const published: Uint8Array[] = []
 
 mock.module('@tauri-apps/api/core', () => ({
   invoke: async (command: string, input: unknown) => {
-    // Tauri's Android postMessage path serializes typed arrays inside the JSON envelope.
+    // Tauri's mobile postMessage path serializes typed arrays inside the JSON envelope.
     const envelope = JSON.stringify({ payload: input }, (_key, value) =>
       value instanceof ArrayBuffer
         ? Array.from(new Uint8Array(value))
@@ -25,8 +28,11 @@ mock.module('@tauri-apps/api/core', () => ({
     )
     const args = JSON.parse(envelope).payload
     if (command.endsWith('|save_cache')) {
-      assert(!Array.isArray(args), 'Android converted the complete binary request to JSON; Rust requires a raw body')
-      throw new Error('Android must not send the complete audio through save_cache')
+      assert(
+        !Array.isArray(args),
+        'Mobile WebView converted the complete binary request to JSON; Rust requires a raw body'
+      )
+      throw new Error('Mobile WebViews must not send the complete audio through save_cache')
     }
     assert(envelope.length < 512 * 1024, 'one IPC packet must remain bounded')
     if (command.endsWith('|begin_cache_write')) {

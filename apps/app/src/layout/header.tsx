@@ -2,17 +2,17 @@ import { Minus, Maximize, X, RefreshCw } from 'lucide-react'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { SidebarTrigger } from '@/components/ui/sidebar'
 import { Button } from '@/components/ui/button'
-import { isAndroid } from '@/lib/platform'
+import { isMobile } from '@/lib/platform'
 
-const appWindow = isAndroid ? undefined : getCurrentWindow()
+const appWindow = isMobile ? undefined : getCurrentWindow()
 
 export function AppHeader() {
   return (
     <div
-      data-tauri-drag-region={isAndroid ? undefined : true}
-      className={`flex shrink-0 justify-between p-2 ${isAndroid ? '' : 'cursor-move'}`}
+      data-tauri-drag-region={isMobile ? undefined : true}
+      className={`flex shrink-0 justify-between p-2 ${isMobile ? '' : 'cursor-move'}`}
       style={
-        isAndroid
+        isMobile
           ? { paddingTop: 'calc(var(--android-top-inset, env(safe-area-inset-top, 0px)) + var(--spacing) * 2)' }
           : undefined
       }

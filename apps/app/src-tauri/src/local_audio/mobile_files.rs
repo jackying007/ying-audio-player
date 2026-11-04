@@ -1,16 +1,30 @@
 use super::*;
-use tauri_plugin_android_files::AndroidFilesExt;
+#[cfg(target_os = "android")]
+use tauri_plugin_android_files::{AndroidFiles as Files, AndroidFilesExt};
+#[cfg(target_os = "ios")]
+use tauri_plugin_ios_files::{IosFiles as Files, IosFilesExt};
 
-pub struct TemporaryFile(pub PathBuf);
-
-impl Drop for TemporaryFile {
-    fn drop(&mut self) {
-        let _ = fs::remove_file(&self.0);
+fn files(app: &tauri::AppHandle) -> &Files<tauri::Wry> {
+    #[cfg(target_os = "android")]
+    {
+        app.android_files()
+    }
+    #[cfg(target_os = "ios")]
+    {
+        app.ios_files()
     }
 }
 
+pub fn pick_folder(app: &tauri::AppHandle) -> Result<Option<String>> {
+    files(app).pick_folder().map(|selection| selection.uri)
+}
+
+pub fn release(app: &tauri::AppHandle, uri: &str) -> Result<()> {
+    files(app).release(uri)
+}
+
 pub fn materialize(app: &tauri::AppHandle, uri: &str) -> Result<TemporaryFile> {
-    app.android_files()
+    files(app)
         .materialize(uri)
         .map(|file| TemporaryFile(file.path.into()))
 }
@@ -42,7 +56,7 @@ pub fn index(
         return Err("文件夹不存在".into());
     }
     // Listing must complete before publishing anything, including an empty directory.
-    let directory = app.android_files().list(uri)?;
+    let directory = files(app).list(uri)?;
     let mut audios = Vec::with_capacity(directory.files.len());
     for document in directory.files {
         let mut audio = match materialize(app, &document.uri) {

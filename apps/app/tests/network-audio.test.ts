@@ -26,10 +26,12 @@ class TestAudio {
     this.listeners.get('pause')?.()
   }
   async play() {
+    if (playError) throw playError
     this.paused = false
     this.listeners.get('playing')?.()
   }
 }
+let playError: Error | undefined
 const storage = new Map<string, string>()
 Object.defineProperty(globalThis, 'localStorage', {
   configurable: true,
@@ -119,7 +121,7 @@ const toNetworkAudio = (row: Parameters<typeof convertNetworkAudio>[0]) => ({
   ...convertNetworkAudio(row),
   folderName: '我的音乐'
 })
-const { playAudio, playNextAudio, cachedMap, invalidateAudioCache, useAudioStore, PlayState } =
+const { playAudio, replayAudio, playNextAudio, cachedMap, invalidateAudioCache, useAudioStore, PlayState } =
   await import('../src/store/audio-store')
 const {
   useNetworkAudioStore,
@@ -203,6 +205,7 @@ function syncState(running: boolean) {
 }
 
 beforeEach(() => {
+  playError = undefined
   useAppStore.setState({
     playMode: 'sequence',
     removingFolderIds: [],
@@ -225,6 +228,22 @@ beforeEach(() => {
   useAudioStore.setState({ currentAudioInfo: undefined, audioList: [], playlistFolderId: undefined, error: undefined })
   useNetworkAudioStore.setState({ syncs: {}, folders: [{ id: 1, name: '我的音乐' }], entries: {} })
   fetchHandler = async () => new Response('music')
+})
+
+test('a WebView playback restriction keeps the loaded song ready for a user retry', async () => {
+  playError = new DOMException('Playback requires a gesture', 'NotAllowedError')
+  expect(await playAudio(local)).toBe(false)
+  expect(useAudioStore.getState()).toMatchObject({
+    playState: PlayState.Paused,
+    isLoading: false,
+    error: '请点按播放按钮继续'
+  })
+  const loadedSource = TestAudio.instance.src
+  playError = undefined
+  await replayAudio()
+  expect(TestAudio.instance.src).toBe(loadedSource)
+  expect(useAudioStore.getState().playState).toBe(PlayState.Playing)
+  expect(useAudioStore.getState().error).toBeUndefined()
 })
 
 test('play all network songs replaces the queue in folder and song order and starts the first song', async () => {

@@ -3691,6 +3691,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "tauri-plugin-ios-files"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-plugin",
+]
+
+[[package]]
 name = "tauri-plugin-opener"
 version = "2.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4909,6 +4919,7 @@ dependencies = [
  "tauri-plugin-android-files",
  "tauri-plugin-dialog",
  "tauri-plugin-fs",
+ "tauri-plugin-ios-files",
  "tauri-plugin-opener",
 ]
 
