@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="rose" x1="40" y1="24" x2="458" y2="500" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ff6179"/>
+      <stop offset=".52" stop-color="#e33060"/>
+      <stop offset="1" stop-color="#a81449"/>
+    </linearGradient>
+    <linearGradient id="pearl" x1="175" y1="137" x2="336" y2="382" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#fff9ed"/>
+      <stop offset="1" stop-color="#ffd8de"/>
+    </linearGradient>
+  </defs>
+  <rect x="28" y="28" width="456" height="456" rx="108" fill="url(#rose)"/>
+  <g stroke="url(#pearl)" stroke-linecap="round" fill="none"
+    transform="translate(256 256) rotate(32) scale(1.2)">
+    <g fill="url(#pearl)" stroke="none" opacity=".92">
+      <path id="swing-trail" d="M -151 2 C -153 32 -144 63 -125 87 Q -121 92 -117 88
+        Q -113 84 -118 78 C -135 56 -145 29 -151 2 Z"/>
+      <use href="#swing-trail" transform="rotate(180)"/>
+    </g>
+    <path d="M -113 -50 A 117 117 0 0 0 -113 50 M 113 -50 A 117 117 0 0 1 113 50" stroke-width="22"/>
+    <path d="M -80 -11 V 11 M -40 -44 V 44 M 0 -26 V 26 M 40 -57 V 57 M 80 -19 V 19" stroke-width="21"/>
+  </g>
+</svg>
