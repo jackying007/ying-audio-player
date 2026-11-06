@@ -241,24 +241,10 @@ const startAudio = async (audioInfo: AudioInfo, playlist?: Pick<AudioStore, 'aud
   playbackAbort?.abort()
   const controller = new AbortController()
   playbackAbort = controller
-  pauseAudio()
-  audio.removeAttribute('src')
-  audio.load()
-  useAudioStore.setState({
-    ...playlist,
-    showMode: ShowMode.Bottom,
-    currentAudioInfo: audioInfo,
-    currentLrc: undefined,
-    currentTime: 0,
-    duration: audioInfo.durationMs == null ? undefined : audioInfo.durationMs / 1000,
-    playState: PlayState.None,
-    isLoading: true,
-    error: undefined,
-    warning: undefined
-  })
   try {
     let cached = cachedMap.get(audioInfo.link)
-    if (cached && audioInfo.source === 'network' && cached.lyricsIdentity !== audioInfo.lrcLink) {
+    const remote = audioInfo.source === 'network'
+    if (cached && remote && cached.lyricsIdentity !== audioInfo.lrcLink) {
       cached = {
         ...cached,
         lrc: undefined,
@@ -270,7 +256,27 @@ const startAudio = async (audioInfo: AudioInfo, playlist?: Pick<AudioStore, 'aud
       }
       cachedMap.set(audioInfo.link, cached)
     }
-    if (cached?.warning && audioInfo.source === 'network') {
+    const retryNetworkCache = remote && !!cached?.warning
+    if (!cached || retryNetworkCache) {
+      pauseAudio()
+      audio.removeAttribute('src')
+      audio.load()
+    }
+    const reuseSource = cached?.objectUrl === audio.src && !audio.error
+    const indexedDuration = audioInfo.durationMs == null ? undefined : audioInfo.durationMs / 1000
+    useAudioStore.setState({
+      ...playlist,
+      showMode: ShowMode.Bottom,
+      currentAudioInfo: audioInfo,
+      currentLrc: cached?.lrc,
+      currentTime: 0,
+      duration: reuseSource && Number.isFinite(audio.duration) ? audio.duration : indexedDuration,
+      playState: reuseSource && !audio.paused && !audio.ended ? PlayState.Playing : PlayState.None,
+      isLoading: true,
+      error: undefined,
+      warning: undefined
+    })
+    if (cached && retryNetworkCache) {
       try {
         cached.cacheKey ??= await networkCacheKey(audioInfo)
         controller.signal.throwIfAborted()
@@ -287,7 +293,6 @@ const startAudio = async (audioInfo: AudioInfo, playlist?: Pick<AudioStore, 'aud
       }
     }
     if (!cached) {
-      const remote = audioInfo.source === 'network'
       let warning: string | undefined
       const key = remote
         ? await networkCacheKey(audioInfo).catch(() => {
@@ -330,7 +335,9 @@ const startAudio = async (audioInfo: AudioInfo, playlist?: Pick<AudioStore, 'aud
     }
     if (request !== playRequest) return
     const previousUrl = activeUrl
-    audio.src = cached.objectUrl
+    // Assigning src reloads the media resource, even when the Blob URL is unchanged.
+    if (!reuseSource) audio.src = cached.objectUrl
+    else if (audio.currentTime !== 0) audio.currentTime = 0
     activeUrl = cached.objectUrl
     if (previousUrl && previousUrl !== activeUrl && ![...cachedMap.values()].some(v => v.objectUrl === previousUrl)) {
       URL.revokeObjectURL(previousUrl)

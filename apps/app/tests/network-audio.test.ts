@@ -4,7 +4,8 @@ import type { NetworkCacheKey } from '../src/lib/network-cache'
 
 class TestAudio {
   static instance: TestAudio
-  src = ''
+  #src = ''
+  sourceAssignments = 0
   paused = true
   ended = false
   volume = 1
@@ -14,11 +15,21 @@ class TestAudio {
   constructor() {
     TestAudio.instance = this
   }
+  get src() {
+    return this.#src
+  }
+  set src(value: string) {
+    this.#src = value
+    this.sourceAssignments++
+    this.paused = true
+    this.ended = false
+    this.currentTime = 0
+  }
   addEventListener(name: string, callback: () => void) {
     this.listeners.set(name, callback)
   }
   removeAttribute() {
-    this.src = ''
+    this.#src = ''
   }
   load() {}
   pause() {
@@ -27,6 +38,7 @@ class TestAudio {
   }
   async play() {
     if (playError) throw playError
+    if (!this.paused) return
     this.paused = false
     this.listeners.get('playing')?.()
   }
@@ -821,6 +833,36 @@ test('replaying while persistence is pending does not start a duplicate save', a
   await cachedMap.get(remote.link)?.saving
   expect(writes).toBe(1)
 })
+
+test.each([false, true])('replaying a cached song only loads a source if the track changed (%s)', async switchTrack => {
+  const remote = toNetworkAudio(row)
+  expect(await playAndSave(remote)).toBe(true)
+  const audio = TestAudio.instance
+  const cachedUrl = audio.src
+  if (switchTrack) {
+    expect(await playAudio(local)).toBe(true)
+  } else {
+    audio.currentTime = 35
+    audio.listeners.get('durationchange')?.()
+  }
+
+  const sourceAssignments = audio.sourceAssignments
+  const load = spyOn(audio, 'load')
+  try {
+    expect(await playAudio(remote)).toBe(true)
+    expect(load).not.toHaveBeenCalled()
+    expect(audio.sourceAssignments - sourceAssignments).toBe(switchTrack ? 1 : 0)
+    expect(audio.src).toBe(cachedUrl)
+    if (!switchTrack) {
+      expect(audio.currentTime).toBe(0)
+      expect(useAudioStore.getState().duration).toBe(audio.duration)
+    }
+    expect(useAudioStore.getState()).toMatchObject({ isLoading: false, playState: PlayState.Playing })
+  } finally {
+    load.mockRestore()
+  }
+})
+
 test.each(['local', 'network'] as const)(
   'loading covers %s reads until audio actually starts playing',
   async source => {
