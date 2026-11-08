@@ -66,6 +66,13 @@ impl<R: Runtime, T: Manager<R>> IosFilesExt<R> for T {
 }
 
 tauri::ios_plugin_binding!(init_plugin_ios_files);
+tauri::ios_plugin_binding!(init_plugin_mobile_playback);
+
+pub fn register_playback<R: Runtime>(
+    api: &tauri::plugin::PluginApi<R, ()>,
+) -> Result<PluginHandle<R>, tauri::plugin::mobile::PluginInvokeError> {
+    api.register_ios_plugin(init_plugin_mobile_playback)
+}
 
 pub fn init<R: Runtime>() -> TauriPlugin<R> {
     Builder::new("ios-files")

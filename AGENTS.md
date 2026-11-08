@@ -18,7 +18,7 @@ Bun workspace + Turborepo，包含 Tauri 桌面/Android/iOS 播放器和 Cloudfl
 
 ## App 端 API 编写约定
 
-- 服务端 HTTP 请求统一使用 `@jying/http`，业务调用从 `@/api` 导入。当前网络接口全部集中在 `apps/app/src/api/business/network.ts`，统一导出 `networkApi`；新增网络接口继续放在此文件。
+- 服务端 HTTP 请求统一使用 `@jying/http`，业务调用从 `@/api` 导入。当前网络接口全部集中在 `apps/app/src/api/business/network.ts`，统一导出 `networkApi`；新增网络接口继续放在此文件。Windows、macOS、Android 和 iOS 的原生播放是例外，Rust 下载音频、歌词和封面，校验服务端路径、鉴权和 hash，并拒绝重定向。歌曲列表和系统媒体面板共用封面缓存。
 - 沿用现有工厂格式：业务文件默认导出接收 `HttpRequest` 的函数，返回接口方法对象；`api/index.ts` 通过动态导入加载工厂并注入 `http-client.ts` 的共享 `http` 实例。请求与响应类型统一放在 `api/types.ts`。
 - 接口方法按行为命名，如 `listFolders`、`createFolder`、`createUpload`、`commitUpload`；媒体下载使用 `getAudio`、`getLyrics`、`getCover`。
 - 业务方法使用相对 API 路径（如 `/folders`）；`http-client.ts` 统一从当前 App 设置读取服务端地址和密钥，拼接服务端地址及 `/api`，通过 `query.authToken` 传递原始密钥鉴权（不带 Bearer 前缀）。收到现有歌曲条目的完整媒体 URL 时，先通过 `mediaPath` 校验属于当前服务端并提取相对路径；共享请求钩子将 URL 已有查询参数合并到 `query`，保留 hash 参数并以当前设置覆盖 `authToken`。
@@ -29,7 +29,7 @@ Bun workspace + Turborepo，包含 Tauri 桌面/Android/iOS 播放器和 Cloudfl
 
 ## 安装与启动
 
-根目录执行 `bun install`，使用 `package.json` 指定的 Bun 和 `bun.lock`。桌面开发需 Rust/Cargo、MSVC C++ 构建工具及 WebView2，首次构建需要下载 Rust 依赖。
+根目录执行 `bun install`，使用 `package.json` 指定的 Bun 和 `bun.lock`。桌面开发需 Rust/Cargo。Windows 使用 MSVC C++ 构建工具及 WebView2，macOS 使用 Xcode 命令行工具。首次构建需要下载 Rust 依赖。
 
 **终端一：服务端**（仅本地播放可省略）：
 
@@ -54,6 +54,13 @@ Tauri 自动启动 Vite 并打开窗口。Vite 固定使用 `http://localhost:14
 
 **使用流程**：在「App 设置」填写服务端根地址（不带 `/api`）和与 `API_TOKEN` 相同的密钥 → 导入本地 MP3 文件夹 → 点击列表「同步」 → 展开左侧「网络」，选择文件夹并双击歌曲。网络列表与本地共用布局，展示名称、封面、歌手、时长和大小。
 
+### Windows / macOS 原生播放
+
+- Windows 使用 WinRT MediaPlayer 和系统媒体控件，macOS 使用 AVPlayer 和系统「正在播放」。系统面板与键盘媒体键共用 Rust 队列，支持播放、暂停、切歌和进度调整，并显示歌曲信息与封面。
+- 最小化、切换应用或锁屏时继续播放。关闭主窗口或退出应用会停止播放、清理系统媒体信息与播放临时文件。输出设备变化时暂停，重新连接后可手动继续。系统休眠期间由操作系统管理音频，唤醒后同步状态。
+- 本地歌曲按索引 ID 读取原文件，播放不复制音乐目录。Linux 和浏览器预览使用 WebView 后端。
+- Windows 上运行 `cargo check` 和 `cargo test`，系统媒体面板与媒体键使用 Release 绿色版人工验证。macOS 上用同样的 Rust 命令检查 AVPlayer 适配，系统媒体控件另做人工验收。
+
 ### Android
 
 - 安装 Android Studio 的 JDK、SDK Platform 37、Platform Tools 和 NDK，设置 `JAVA_HOME`、`ANDROID_HOME`、`NDK_HOME`，并安装 `aarch64-linux-android` Rust target。Windows 的 Tauri 打包需要启用系统开发者模式以创建符号链接。
@@ -61,10 +68,10 @@ Tauri 自动启动 Vite 并打开窗口。Vite 固定使用 `http://localhost:14
 - 交付安装包使用 Release（`android:build` 默认），Debug 包仅供开发调试。交付前检查 APK 实际大小与内容，避免交付含大量调试符号或增量打包残留的产物。
 - 真机开发通过 USB 调试连接，执行 `adb reverse tcp:1420 tcp:1420`、`adb reverse tcp:1421 tcp:1421`；访问本机 Worker 时再执行 `adb reverse tcp:8787 tcp:8787`，App 内填写 `http://localhost:8787`。`android:dev` 固定使用 `127.0.0.1`，保持开发页面处于安全上下文，并匹配服务端 CORS；Vite 由 Tauri 启动，不另起一个前端开发服务。发布版继续支持用户填写 HTTP/HTTPS 根地址。
 - Android 原生目录访问位于 `src-tauri/plugins/android-files`。通过系统目录选择器持久授权，只扫描所选目录直接子文件；Android 系统限制选择存储根目录、Download 根目录等位置时，应选择其下的音乐文件夹。取消选择不改索引；撤销授权后重新导入原文件夹恢复访问，授权失效的刷新保留旧索引。
-- URI 是不透明标识；文件夹名和原始 `filename` 来自文档提供者。播放和同步通过 `localAudio.readAudio/readLyrics` 按歌曲 ID 读取，禁止解析 URI 拼接文件名。原生层逐文件临时复制供 Rust 解析或二进制读取，读取结束清理，不永久复制导入目录。
+- URI 是不透明标识；文件夹名和原始 `filename` 来自文档提供者。播放和同步都按歌曲 ID 查询索引，禁止解析 URI 拼接文件名。同步通过 `localAudio.readAudio/readLyrics` 读取，播放将临时文件交给原生播放器。读取结束或播放器释放文件后清理临时副本，不永久复制导入目录。
 - Android 包名统一为 `ying.audio.player`。SQLite、`network` 与 `.network-cache` 直接位于 `Android/data/ying.audio.player/`，不再使用内部私有数据目录；原生层通过 `getExternalFilesDir(null)` 取得系统创建目录的父目录，不硬编码存储盘路径，不申请全盘权限。外部存储不可写时报错，不回退内部目录；卸载仍清除这些数据。更换包名视为新应用，旧包私有数据、设置及目录授权不自动迁移，需重新配置和导入。桌面继续使用可执行文件同目录。音乐列表在 Android 单击播放，桌面双击；布局沿用响应式界面。
-- Android 的 Tauri IPC 请求走 JSON，不能把整首音频作为 raw `ArrayBuffer` 发给只接受二进制请求的命令。网络缓存使用最多 64 KiB 的有序数据块，收齐并校验总长度后复用现有保存流程；失败释放传输资源，完成标记发布前不视为可用缓存。桌面继续使用 raw 二进制 IPC。
-- 播放继续使用 WebView `Audio`，本次不提供通知栏/锁屏控制或可靠后台连续播放。返回键先关闭弹层与侧栏，再收起全屏歌词，再返回历史页面，无历史时退出 App。
+- 移动端原生播放直接读取和写入磁盘缓存。保留的移动缓存 IPC 走 JSON，二进制数据分为最多 64 KiB 的有序数据块，收齐并校验总长度后发布完成标记。
+- 使用 Media3 原生播放服务，支持切后台或锁屏后连续播放，以及通知栏、锁屏和耳机的播放控制。从最近任务划掉 App 时停止播放并清理通知。返回键先关闭弹层与侧栏，再收起全屏歌词，再返回历史页面，无历史时退出 App。
 - 原生代码测试：完成一次 Tauri Android 构建生成依赖配置后，在 `src-tauri/gen/android` 执行 `./gradlew.bat :tauri-plugin-android-files:testDebugUnitTest`；这些 JVM 单元测试不启动 App 或模拟器。改动 Kotlin、Rust、IPC 后同步检查两端类型和 capabilities。
 
 ### iOS
@@ -72,7 +79,7 @@ Tauri 自动启动 Vite 并打开窗口。Vite 固定使用 `http://localhost:14
 - 支持 iOS 16.4 及以上的 iPhone、iPad。使用 macOS 完整 Xcode（含 iOS SDK 和模拟器）、XcodeGen、CocoaPods、libimobiledevice，并安装 `aarch64-apple-ios` 与 `aarch64-apple-ios-sim` Rust targets（Intel Mac 的模拟器使用 `x86_64-apple-ios`）。在 `apps/app` 运行 `bun run ios:init` 初始化缺失的工程，`bun run ios:dev` 开发，`bun run ios:build` 打包。真机签名在本地配置 Xcode 开发团队或设置 `APPLE_DEVELOPMENT_TEAM`。
 - 模拟器可用 `http://localhost:8787` 访问本机 Worker。真机 Vite 热更新使用 `bun run ios:dev --host`（Vite 读取 Tauri 提供的 `TAURI_DEV_HOST`）；联调默认 CORS 的 Worker 时使用模拟器 localhost 或安装已构建的 App。真机访问局域网 Worker 时使 Worker 监听局域网地址，App 填写 Mac 的局域网地址及端口，并允许 iOS 的局域网访问提示。内置 WebView 允许用户配置 HTTP 或 HTTPS；发布版 Tauri 来源已由 Worker 放行。
 - 通过系统「文件」选择音乐文件夹，仅扫描直接子文件。Swift 插件 `src-tauri/plugins/ios-files` 保存目录授权书签并协调读取，Rust 负责索引。授权失效后重新选择原文件夹恢复访问；刷新失败保留旧索引；移除导入记录释放授权书签并保留原文件。
-- SQLite、授权书签、`network` 和 `.network-cache` 位于应用沙盒的 `Library/Application Support/YingAudioPlayer`，两个缓存目录排除系统备份。歌曲单击播放，音频继续通过 WebView 前台播放，移动缓存写入沿用分块 IPC。iOS 未配置后台连续播放或锁屏控制。
+- SQLite、授权书签、`network` 和 `.network-cache` 位于应用沙盒的 `Library/Application Support/YingAudioPlayer`，两个缓存目录排除系统备份。歌曲单击播放，通过 AVPlayer 和后台音频会话连续播放，可在锁屏、控制中心和耳机上操作。强制退出 App 停止播放。锁屏期间加载未缓存歌曲若超过系统允许的后台准备时间，暂停并显示可重试错误。
 - 书签和文件扫描逻辑可用 macOS 主机上的 Swift 测试验证。在 `apps/app` 执行 `ios_plugin=src-tauri/plugins/ios-files/ios; swiftc "$ios_plugin/Sources/FolderAccess.swift" "$ios_plugin/Tests/FolderAccessTests.swift" -o /tmp/ying-ios-folder-access-tests && /tmp/ying-ios-folder-access-tests`。系统选择器与实际安全作用域由 iOS 真机验证。
 
 ## 音乐与同步约定
@@ -85,10 +92,11 @@ Tauri 自动启动 Vite 并打开窗口。Vite 固定使用 `http://localhost:14
 - 同步按文件夹名称精确合并、按「文件夹 + 去掉末尾 .mp3 的文件名」匹配歌曲（扩展名忽略大小写）；同名覆盖，云端独有歌曲保留。上传音频、歌词、封面和本地歌曲元数据，不提交本地数据库 ID、绝对路径、`scanError` 或整个 SQLite 文件。
 - 仅保存音频 `hash` 与可空的 `lyricsHash`，分别为文件原始内容的 SHA-256；不保存封面 hash。封面取自音频内嵌图片，随音频 hash 更新。创建上传返回 `requiredFiles` 和 `unchanged`；音频、歌词分别去重并补传缺失文件，完全一致时跳过；仅元数据变化复用对象。上传及提交时核对 R2 实际音频、歌词摘要。
 - 同步逐首执行并显示成功、跳过及失败数量；普通文件失败继续，鉴权失败停止。同一文件夹同步期间禁用重复同步和刷新。索引声明有歌词却读取失败时，该歌曲同步失败；无歌词或封面时覆盖会清除旧关联。
-- 网络播放通过查询参数 `authToken` 携带密钥下载完整音频，再转为 Blob 播放；封面按需加载，歌词或封面失败不阻止音频。音频上限 50 MiB、歌词 1 MiB、封面 10 MiB。
-- 网络歌曲按「内存 → 磁盘 → 网络」读取。音频和所需歌词下载完毕后，先生成 Blob 开始播放，再通过二进制 IPC 在后台保存到**可执行文件同目录**的 `network/<歌曲文件夹名>/<原始文件名>`，同目录保存同名 LRC；保留中文、空格、扩展名大小写，仅处理文件系统非法名称。开发时通常位于 `apps/app/src-tauri/target/debug/network`，目录需可写。音频 hash 与歌词 hash、连接摘要及完成标记单独保存在程序旁的 `.network-cache` 中，不在歌曲目录添加 ID、版本或摘要层级；连接摘要不含明文密钥，不同连接的同路径文件覆盖保存，但只匹配当前连接的缓存。
-- 磁盘缓存按列表已有音频 hash 与歌词 hash 及歌词存在状态匹配，不额外请求标识；旧缓存标记按未命中处理。命中时不请求音频与歌词；文件夹、歌曲列表和封面仍联网，暂不支持完整离线浏览。新版本覆盖原文件，无歌词时删除旧 LRC。缓存使用临时文件和完成标记；文件缺失、长度不符或读取失败时重新下载。无歌词歌曲仅保存音频；歌词下载失败时播放音频并警告，不发布完整缓存；保存失败不阻止本次播放。可手动删除 `network` 和 `.network-cache` 清理缓存。
-- 本地和网络共用暂停、上一首/下一首、顺序/随机/单曲循环、进度、音量及歌词。保留请求序号防竞态、来源隔离、缓存失效和 Blob URL 回收；覆盖当前歌曲后同步更新当前条目及队列 hash。
+- 网络播放通过查询参数 `authToken` 携带密钥下载完整音频。原生平台由播放器读取临时文件，WebView 后端转为 Blob 播放；封面按需加载，歌词或封面失败不阻止音频。音频上限 50 MiB、歌词 1 MiB、封面 10 MiB。
+- 原生平台按「磁盘 → 网络」读取并由 Rust 保存，WebView 后端按「内存 → 磁盘 → 网络」读取并通过二进制 IPC 保存。下载后开始播放，随后在后台写入各平台数据目录中的 `network/<歌曲文件夹名>/<原始文件名>`，同目录保存同名 LRC；保留中文、空格、扩展名大小写，仅处理文件系统非法名称。桌面开发缓存通常位于 `apps/app/src-tauri/target/debug/network`，目录需可写。音频 hash 与歌词 hash、连接摘要及完成标记保存在同一数据根目录下的 `.network-cache` 中，不在歌曲目录添加 ID、版本或摘要层级；连接摘要不含明文密钥，不同连接的同路径文件覆盖保存，但只匹配当前连接的缓存。原生网络播放用独立的临时文件，播放器释放文件后清理。
+- 磁盘缓存按列表已有音频 hash 与歌词 hash 及歌词存在状态匹配，不额外请求标识；旧缓存标记按未命中处理。命中时不请求音频与歌词；文件夹和歌曲列表仍联网，暂不支持完整离线浏览。新版本覆盖原文件，无歌词时删除旧 LRC。缓存使用临时文件和完成标记；文件缺失、长度不符或读取失败时重新下载。无歌词歌曲仅保存音频；歌词下载失败时播放音频并警告，不发布完整缓存；保存失败不阻止本次播放。可手动删除 `network` 和 `.network-cache` 清理缓存。
+- 网络封面按连接和歌曲音频 hash 缓存。App 内共用有大小上限的内存缓存，原生平台的列表和系统媒体面板共用应用缓存目录下的 `network-covers`，缓存未命中时合并同一首歌的封面下载。
+- 本地和网络共用暂停、上一首/下一首、顺序/随机/单曲循环、进度、音量及歌词。WebView 后端使用请求序号防竞态并回收 Blob URL，原生平台由 Rust 维护队列和会话版本并忽略已取消的媒体加载；覆盖当前歌曲后同步更新当前条目及队列 hash。
 - 地址和密钥保存在 localStorage 的 `ying-audio-player-network`；音量和模式保存在 `ying-audio-player-settings`。修改连接配置时终止旧网络请求、停止网络播放并释放网络缓存，本地播放不受影响。
 
 ## 服务端数据与接口
@@ -126,6 +134,17 @@ Tauri 自动启动 Vite 并打开窗口。Vite 固定使用 `http://localhost:14
 - Worker 联调使用独立本地库：在 `apps/server` 执行 `bunx wrangler d1 migrations apply D1 --local --persist-to .wrangler/music-smoke`，再运行 `bunx wrangler dev --ip 127.0.0.1 --port 8788 --persist-to .wrangler/music-smoke --var API_TOKEN:local-smoke-key --test-scheduled`；另开终端在同目录执行 `bun run test:worker`。脚本默认本机 8788 和上述测试密钥，覆盖 hash 去重、校验、发布及清理；本地定时任务需 `--test-scheduled` 后调用 `/__scheduled` 触发。
 - 在 `apps/server` 执行 `bunx drizzle-kit generate` 生成迁移、`bunx wrangler types` 更新绑定类型；修改 schema 时检查 `src/db/relations.ts`。已有数据库结构演进使用显式迁移并保留歌曲与文件引用，本地 SQLite 也不能仅改建表语句。
 - 线上变更单独执行：确认 D1/R2 资源和绑定正确，再运行 `bunx wrangler d1 migrations apply D1 --remote`、`bunx wrangler secret put API_TOKEN`、`bunx wrangler deploy`。客户端配置 Worker HTTPS 根地址及同一密钥；这些操作不属于本地启动步骤。
-- IPC 字段变化同步检查 Rust、`local-audio.ts` 与 `AudioInfo`；新增命令/文件能力检查 `src-tauri/src/lib.rs`、`src-tauri/capabilities/default.json`。扫描成功不保证 WebView 能解码音频。
+- IPC 字段变化同步检查 Rust、`local-audio.ts` 与 `AudioInfo`；新增命令/文件能力检查 `src-tauri/src/lib.rs`、`src-tauri/capabilities/default.json`。扫描成功不保证播放器能解码音频。
 - 文件路由由 Vite/TanStack Router 更新 `routeTree.gen.ts`；Tauri schemas 和 `worker-configuration.d.ts` 按生成流程维护。两个 workspace 的 `@/*` 各指向自己的 `src/*`。
 - 格式以根 `.oxfmtrc.json` 为准，局部修改仅格式化目标文件。`.husky/pre-commit` 运行 `bun lint-staged`，不能代替类型检查、测试和桌面行为验证。
+
+<!-- BEGIN:turborepo-agent-rules -->
+
+# This is NOT the Turborepo you know
+
+Turborepo configuration, task behavior, and CLI commands can vary between installed versions and may differ from your training data. Resolve the `turbo` package from this file's directory or relevant workspace; in monorepos, it may not be visible from the repository root. For example, run `node -p "require.resolve('turbo/package.json')"` from a workspace that depends on `turbo`.
+
+Read `docs/README.md` inside that installed package first, then read the relevant pages from its `docs/` directory before changing Turborepo configuration or commands. Heed deprecation notices. These bundled docs match the installed package version and are available without network access.
+
+This block is written and re-added by `turbo` before repository-scoped commands when an AI agent is detected. In the Turborepo source repository, its template is defined in `crates/turborepo-cli/src/cli/agent_guidance.rs`. Removing the managed block while updates are enabled means a later qualifying invocation will add it again. Set `"agentGuidance": false` in the root `turbo.json` or `turbo.jsonc` to opt out; this does not remove an existing block. Keep the block committed with your work to avoid an uncommitted change on the next agent invocation.
+<!-- END:turborepo-agent-rules -->

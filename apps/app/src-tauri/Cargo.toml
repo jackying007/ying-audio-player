@@ -27,6 +27,33 @@ tauri-plugin-dialog = "2"
 lofty = "0.25"
 rusqlite = { version = "0.40", features = ["bundled"] }
 
+[target.'cfg(any(target_os = "android", target_os = "ios", target_os = "windows", target_os = "macos"))'.dependencies]
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-webpki-roots"] }
+sha2 = "0.10"
+tokio = { version = "1", features = ["sync", "macros", "time"] }
+tempfile = "3"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", features = ["block2"] }
+objc2-app-kit = "0.3"
+objc2-av-foundation = { version = "0.3", default-features = false, features = ["std", "AVPlayer", "AVPlayerItem", "objc2-core-media"] }
+objc2-core-media = { version = "0.3", default-features = false, features = ["std", "CMTime"] }
+objc2-media-player = { version = "0.3", default-features = false, features = ["std", "MPNowPlayingInfoCenter", "MPMediaItem", "MPRemoteCommandCenter", "MPRemoteCommand", "MPRemoteCommandEvent", "MPMediaEntity", "block2", "objc2-app-kit", "objc2-core-foundation"] }
+block2 = "0.6"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { version = "0.62", features = ["Foundation", "Media", "Media_Core", "Media_Devices", "Media_Playback", "Storage_Streams", "Win32_System_WinRT", "Win32_Media_Audio", "Win32_Media_KernelStreaming", "Win32_System_Com_StructuredStorage", "Win32_System_Variant"] }
+
+[dependencies.fastrand]
+version = "2"
+
+[dev-dependencies]
+tempfile = "3"
+tokio = { version = "1", features = ["sync", "macros"] }
+reqwest = { version = "0.12", default-features = false }
+sha2 = "0.10"
+
 [target.'cfg(target_os = "android")'.dependencies]
 tauri-plugin-android-files = { path = "plugins/android-files" }
 

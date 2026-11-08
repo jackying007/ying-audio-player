@@ -44,6 +44,10 @@ targets:
     info:
       path: ying-audio-player_iOS/Info.plist
       properties:
+        UIBackgroundModes: [audio]
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoadsInWebContent: true
+        NSLocalNetworkUsageDescription: 连接你配置的局域网音乐服务。
         LSRequiresIPhoneOS: true
         UILaunchStoryboardName: LaunchScreen
         UIRequiredDeviceCapabilities: [arm64, metal]
@@ -77,6 +81,8 @@ targets:
     dependencies:
       - framework: libapp.a
         embed: false
+      - sdk: AVFoundation.framework
+      - sdk: MediaPlayer.framework
       - sdk: CoreGraphics.framework
       - sdk: Metal.framework
       - sdk: MetalKit.framework

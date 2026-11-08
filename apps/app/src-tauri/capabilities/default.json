@@ -5,6 +5,8 @@
   "windows": ["main"],
   "permissions": [
     "core:default",
+    "native-playback:allow-control",
+    "native-playback:allow-load-cover",
     "opener:default",
     "dialog:default",
     "local-audio:allow-list-folders",

@@ -1,3 +1,5 @@
+-keep class ying.audio.player.androidfiles.MobilePlaybackPlugin { *; }
+-keep class ying.audio.player.androidfiles.PlaybackAttachArgs { *; }
 -keep class ying.audio.player.androidfiles.AndroidFilesPlugin { *; }
 -keep class ying.audio.player.androidfiles.UriArgs { *; }
 # Add project specific ProGuard rules here.

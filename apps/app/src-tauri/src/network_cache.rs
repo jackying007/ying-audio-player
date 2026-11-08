@@ -317,6 +317,45 @@ fn read_files(root: &Path, key: &CacheKey) -> Result<Option<CachedFiles>> {
         .and_then(|entry| cached_files(&entry, key)))
 }
 
+#[cfg(any(mobile, target_os = "windows", target_os = "macos"))]
+pub(crate) fn copy_for_playback(
+    app: &tauri::AppHandle,
+    key: &CacheKey,
+    destination: &Path,
+) -> Result<Option<Option<String>>> {
+    let root = cache_root(app)?;
+    let _guard = CACHE_LOCK.lock().map_err(|e| e.to_string())?;
+    let Some(files) = read_files(&root, key)? else {
+        return Ok(None);
+    };
+    let lyrics = files
+        .lyrics_path
+        .map(fs::read)
+        .transpose()
+        .map_err(|e| e.to_string())?;
+    fs::copy(files.audio_path, destination).map_err(|e| e.to_string())?;
+    Ok(Some(
+        lyrics.map(|bytes| String::from_utf8_lossy(&bytes).into_owned()),
+    ))
+}
+
+#[cfg(any(mobile, target_os = "windows", target_os = "macos"))]
+pub(crate) fn publish_playback(
+    app: &tauri::AppHandle,
+    key: CacheKey,
+    audio: Vec<u8>,
+    lyrics: Option<String>,
+    active: &std::sync::atomic::AtomicBool,
+) -> Result<()> {
+    let root = cache_root(app)?;
+    let _guard = CACHE_LOCK.lock().map_err(|e| e.to_string())?;
+    if active.load(std::sync::atomic::Ordering::Acquire) {
+        validate_key(&key)?;
+        save_files(&root, key, audio, lyrics)?;
+    }
+    Ok(())
+}
+
 #[tauri::command]
 async fn read_cache(app: tauri::AppHandle, key: CacheKey) -> Result<Option<CachedFiles>> {
     tauri::async_runtime::spawn_blocking(move || {

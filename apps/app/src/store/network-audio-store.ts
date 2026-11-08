@@ -8,7 +8,7 @@ import {
   invalidateAudioCache,
   playAudio,
   removeNetworkFolderFromPlayback,
-  useAudioStore,
+  updatePlaybackFolder,
   type AudioInfo
 } from './audio-store'
 import { connectionSignal, networkApi, HttpError, type NetworkFolder } from '@/api'
@@ -82,11 +82,7 @@ export async function loadNetworkAudios(id: string) {
     }
     const audios = rows.map(row => ({ ...toNetworkAudio(row), folderName }))
     updateEntry(id, { audios })
-    const player = useAudioStore.getState()
-    if (player.playlistFolderId === Number(id) && player.currentAudioInfo?.source === 'network') {
-      const currentAudioInfo = audios.find(audio => audio.id === player.currentAudioInfo?.id) ?? player.currentAudioInfo
-      useAudioStore.setState({ audioList: audios, currentAudioInfo })
-    }
+    updatePlaybackFolder(Number(id), 'network', audios)
   } catch (error) {
     if (audioRequests.get(id) === request) updateEntry(id, { error: String(error) })
   } finally {

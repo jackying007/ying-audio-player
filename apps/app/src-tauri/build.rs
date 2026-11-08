@@ -24,6 +24,10 @@ fn main() {
                 "finish_cache_write",
                 "abort_cache_write",
             ]),
+        )
+        .plugin(
+            "native-playback",
+            tauri_build::InlinedPlugin::new().commands(&["control", "load_cover"]),
         );
     tauri_build::try_build(attributes).expect("failed to build Tauri application");
 }

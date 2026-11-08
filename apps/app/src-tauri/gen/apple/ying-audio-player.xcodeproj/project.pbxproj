@@ -18,6 +18,8 @@
 		AE68A5876B49DCC2E5B40472 /* MetalKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 5BB09E7927C522E3ADB6CA72 /* MetalKit.framework */; };
 		C020101EF2D0087152C28ACF /* libapp.a in Frameworks */ = {isa = PBXBuildFile; fileRef = C5604A377637B8D182AE2943 /* libapp.a */; };
 		F2F295D3A159DAC4ED2CB22F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 2D3968E745A5251A27A2EA9B /* Assets.xcassets */; };
+		1ABE85413806C9CA3E675EF2 /* MediaPlayer.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1278C0D1ADE851814824F89D /* MediaPlayer.framework */; };
+		E40C96327A91EB72BD6D9483 /* AVFoundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 461F143E9326D90649D86637 /* AVFoundation.framework */; };
 		FA236EF4D06A7E8956CCCC88 /* WebKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = B9F733FC4FB0BFC2290DB365 /* WebKit.framework */; };
 /* End PBXBuildFile section */
 
@@ -36,6 +38,8 @@
 		8E8805C0791B8FB2EEBF9F23 /* assets */ = {isa = PBXFileReference; lastKnownFileType = folder; path = assets; sourceTree = SOURCE_ROOT; };
 		9A97CF272E4C20E2CB750B01 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		A5BA4F2E690136FA4D4A1B83 /* bindings.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = bindings.h; sourceTree = "<group>"; };
+		1278C0D1ADE851814824F89D /* MediaPlayer.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = MediaPlayer.framework; path = System/Library/Frameworks/MediaPlayer.framework; sourceTree = SDKROOT; };
+		461F143E9326D90649D86637 /* AVFoundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AVFoundation.framework; path = System/Library/Frameworks/AVFoundation.framework; sourceTree = SDKROOT; };
 		B9F733FC4FB0BFC2290DB365 /* WebKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WebKit.framework; path = System/Library/Frameworks/WebKit.framework; sourceTree = SDKROOT; };
 		C5604A377637B8D182AE2943 /* libapp.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libapp.a; sourceTree = "<group>"; };
 		D3C1D1AC7F2FB7CDFEDE7129 /* mobile_files.rs */ = {isa = PBXFileReference; lastKnownFileType = text; path = mobile_files.rs; sourceTree = "<group>"; };
@@ -58,6 +62,8 @@
 				223D7463227F5BCA0954843F /* QuartzCore.framework in Frameworks */,
 				26F4E88109B31598BB125CE8 /* Security.framework in Frameworks */,
 				9F3B9FF3664E846F0480DF49 /* UIKit.framework in Frameworks */,
+				E40C96327A91EB72BD6D9483 /* AVFoundation.framework in Frameworks */,
+				1ABE85413806C9CA3E675EF2 /* MediaPlayer.framework in Frameworks */,
 				FA236EF4D06A7E8956CCCC88 /* WebKit.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -144,6 +150,8 @@
 				8338CD6CB647D0D9CFFDF944 /* QuartzCore.framework */,
 				3FB0F68355DA4836B1738C63 /* Security.framework */,
 				EA1687E69A9E7F63CED0279A /* UIKit.framework */,
+				461F143E9326D90649D86637 /* AVFoundation.framework */,
+				1278C0D1ADE851814824F89D /* MediaPlayer.framework */,
 				B9F733FC4FB0BFC2290DB365 /* WebKit.framework */,
 			);
 			name = Frameworks;

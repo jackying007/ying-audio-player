@@ -78,6 +78,8 @@ mock.module('@tauri-apps/plugin-fs', () => ({
   }
 }))
 mock.module('@tauri-apps/api/core', () => ({
+  isTauri: () => false,
+  transformCallback: () => 0,
   invoke: async (command: string, input: { key: NetworkCacheKey } | ArrayBuffer) => {
     if (command === 'plugin:local-audio|read_audio' || command === 'plugin:local-audio|read_lyrics') {
       const { audioId } = input as unknown as { audioId: number }
@@ -133,8 +135,17 @@ const toNetworkAudio = (row: Parameters<typeof convertNetworkAudio>[0]) => ({
   ...convertNetworkAudio(row),
   folderName: '我的音乐'
 })
-const { playAudio, replayAudio, playNextAudio, cachedMap, invalidateAudioCache, useAudioStore, PlayState } =
-  await import('../src/store/audio-store')
+const {
+  initAudioPlayback,
+  playAudio,
+  replayAudio,
+  playNextAudio,
+  cachedMap,
+  invalidateAudioCache,
+  useAudioStore,
+  PlayState
+} = await import('../src/store/audio-store')
+initAudioPlayback()
 const {
   useNetworkAudioStore,
   loadNetworkFolders,
@@ -1687,4 +1698,24 @@ test('metadata-only changes reuse disk audio and lyrics after memory is cleared'
   }
   await playAndSave({ ...first, title: 'new title' })
   expect(requests).toEqual([])
+})
+
+test('visible rows reuse a cover request until its hash or connection changes', async () => {
+  const { getNetworkCover } = await import('../src/lib/network-cover')
+  const calls: string[] = []
+  fetchHandler = async url => {
+    calls.push(url)
+    return new Response(new Uint8Array([1, 2, 3]), { headers: { 'Content-Type': 'image/png' } })
+  }
+  const base = 'http://localhost:8787/api/audios/910/cover?hash='
+  const first = base + 'a'.repeat(64)
+  await Promise.all([getNetworkCover(910, first), getNetworkCover(910, first)])
+  await getNetworkCover(910, first)
+  expect(calls).toHaveLength(1)
+  const next = base + 'b'.repeat(64)
+  await getNetworkCover(910, next)
+  expect(calls).toHaveLength(2)
+  useNetworkSettings.setState({ token: 'different-key' })
+  await getNetworkCover(910, next)
+  expect(calls).toHaveLength(3)
 })

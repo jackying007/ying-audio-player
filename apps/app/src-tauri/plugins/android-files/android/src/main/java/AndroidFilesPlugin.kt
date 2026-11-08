@@ -22,8 +22,19 @@ class UriArgs { lateinit var uri: String }
 
 @TauriPlugin
 class AndroidFilesPlugin(private val activity: Activity) : Plugin(activity) {
+    companion object {
+        private val cleanedStaging = java.util.concurrent.atomic.AtomicBoolean()
+    }
     private val resolver get() = activity.contentResolver
     private val worker = Executors.newSingleThreadExecutor()
+
+    init {
+        if (cleanedStaging.compareAndSet(false, true)) worker.execute {
+            activity.cacheDir.listFiles()?.filter {
+                it.name.startsWith("ying-audio-") && it.extension == "mp3"
+            }?.forEach { it.delete() }
+        }
+    }
 
     override fun onDestroy(activity: AppCompatActivity) { worker.shutdown() }
 

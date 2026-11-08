@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Music2 } from 'lucide-react'
 import type { AudioInfo } from '@/store/audio-store'
-import { networkApi } from '@/api'
+import { getNetworkCover } from '@/lib/network-cover'
 import { localAudio } from '@/lib/local-audio'
 import { useNetworkSettings } from '@/store/network-settings'
 
@@ -20,7 +20,6 @@ export function AudioCover({ audio }: { audio: AudioInfo }) {
     result?.audio === audio && result.token === token && result.serverUrl === serverUrl ? result : undefined
   useEffect(() => {
     if (!audio.hasCover) return
-    const controller = new AbortController()
     let disposed = false
     let objectUrl: string | undefined
     async function load() {
@@ -28,7 +27,7 @@ export function AudioCover({ audio }: { audio: AudioInfo }) {
         let blob: Blob
         if (audio.source === 'network') {
           if (!audio.coverLink) throw new Error('歌曲封面地址不存在')
-          blob = await networkApi.getCover(audio.coverLink, controller.signal)
+          blob = await getNetworkCover(audio.id, audio.coverLink)
         } else {
           const cover = await localAudio.getCover(audio.id)
           if (!cover) throw new Error('歌曲封面不存在')
@@ -53,7 +52,6 @@ export function AudioCover({ audio }: { audio: AudioInfo }) {
     if (containerRef.current) observer.observe(containerRef.current)
     return () => {
       disposed = true
-      controller.abort()
       observer.disconnect()
       if (objectUrl) URL.revokeObjectURL(objectUrl)
     }

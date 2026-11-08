@@ -1,4 +1,6 @@
 mod local_audio;
+#[cfg(any(mobile, target_os = "windows", target_os = "macos", test))]
+mod native_playback;
 mod network_cache;
 mod storage;
 
@@ -9,6 +11,8 @@ pub fn run() {
     let builder = builder.plugin(tauri_plugin_android_files::init());
     #[cfg(target_os = "ios")]
     let builder = builder.plugin(tauri_plugin_ios_files::init());
+    #[cfg(any(mobile, target_os = "windows", target_os = "macos"))]
+    let builder = builder.plugin(native_playback::init());
     builder
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())

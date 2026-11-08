@@ -3,7 +3,7 @@ import { localAudio } from '@/lib/local-audio'
 import { useAppStore } from './app-store'
 import {
   type AudioInfo,
-  useAudioStore,
+  updatePlaybackFolder,
   playAudio,
   invalidateAudioCache,
   removeLocalFolderFromPlayback
@@ -39,11 +39,7 @@ export async function loadFolderAudios(folderId: string) {
     const audios = await localAudio.listAudios(id)
     if (generations.get(folderId) !== generation) return
     update(folderId, { audios })
-    const player = useAudioStore.getState()
-    if (player.playlistFolderId === id && player.currentAudioInfo?.source !== 'network') {
-      const currentAudioInfo = audios.find(audio => audio.id === player.currentAudioInfo?.id) ?? player.currentAudioInfo
-      useAudioStore.setState({ audioList: audios, currentAudioInfo })
-    }
+    updatePlaybackFolder(id, 'local', audios)
   } catch (error) {
     if (generations.get(folderId) === generation) update(folderId, { error: String(error) })
   } finally {

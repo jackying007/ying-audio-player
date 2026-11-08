@@ -6,3 +6,7 @@ export function detectPlatform(userAgent: string, maxTouchPoints = 0) {
 
 const browser = typeof navigator === 'undefined' ? undefined : navigator
 export const { isAndroid, isIOS, isMobile } = detectPlatform(browser?.userAgent ?? '', browser?.maxTouchPoints)
+
+export function supportsNativePlayback(isTauri: boolean, userAgent: string, maxTouchPoints = 0) {
+  return isTauri && (detectPlatform(userAgent, maxTouchPoints).isMobile || /Windows NT|Macintosh/i.test(userAgent))
+}

@@ -16,7 +16,7 @@ type Result<T> = std::result::Result<T, String>;
 mod mobile_files;
 
 #[cfg(any(target_os = "android", target_os = "ios", test))]
-struct TemporaryFile(PathBuf);
+pub(crate) struct TemporaryFile(pub(crate) PathBuf);
 
 #[cfg(any(target_os = "android", target_os = "ios", test))]
 impl Drop for TemporaryFile {
@@ -121,7 +121,7 @@ pub struct ScanResult {
 #[derive(Serialize, Debug)]
 pub struct Cover {
     mime: String,
-    data: Vec<u8>,
+    pub(crate) data: Vec<u8>,
 }
 
 struct ScannedAudio {
@@ -640,17 +640,45 @@ fn indexed_file(db: &Connection, audio_id: i64, lyrics: bool) -> Result<String> 
     Ok(if lyrics { lrc } else { audio })
 }
 
+#[cfg(mobile)]
+pub(crate) fn materialize_for_playback(
+    app: &tauri::AppHandle,
+    id: i64,
+    lyrics: bool,
+) -> Result<TemporaryFile> {
+    let db = open_database(&database_path(app)?)?;
+    let path = indexed_file(&db, id, lyrics)?;
+    drop(db);
+    mobile_files::materialize(app, &path)
+}
+
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+pub(crate) fn desktop_playback_path(
+    app: &tauri::AppHandle,
+    id: i64,
+    lyrics: bool,
+) -> Result<PathBuf> {
+    let db = open_database(&database_path(app)?)?;
+    let path = PathBuf::from(indexed_file(&db, id, lyrics)?);
+    if !path.is_file() {
+        return Err("本地文件不存在或无法读取".into());
+    }
+    Ok(path)
+}
+
 async fn read_indexed_file(
     app: tauri::AppHandle,
     audio_id: i64,
     lyrics: bool,
 ) -> Result<tauri::ipc::Response> {
+    #[cfg(not(mobile))]
     let database = database_path(&app)?;
     tauri::async_runtime::spawn_blocking(move || {
+        #[cfg(not(mobile))]
         let path = indexed_file(&open_database(&database)?, audio_id, lyrics)?;
-        #[cfg(any(target_os = "android", target_os = "ios"))]
-        let temporary = mobile_files::materialize(&app, &path)?;
-        #[cfg(any(target_os = "android", target_os = "ios"))]
+        #[cfg(mobile)]
+        let temporary = materialize_for_playback(&app, audio_id, lyrics)?;
+        #[cfg(mobile)]
         let path = &temporary.0;
         fs::read(path)
             .map(tauri::ipc::Response::new)
