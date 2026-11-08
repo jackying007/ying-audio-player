@@ -1,8 +1,0 @@
-{
-  "bundle": {
-    "android": { "minSdkVersion": 24 }
-  },
-  "app": {
-    "windows": [{ "label": "main", "title": "嘤嘤播放器", "useHttpsScheme": true }]
-  }
-}
