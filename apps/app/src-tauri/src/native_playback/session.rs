@@ -809,6 +809,8 @@ async fn load_cover(
     app: AppHandle,
     audio_id: i64,
     cover_link: String,
+    folder_name: Option<String>,
+    filename: Option<String>,
     server_url: String,
     token: String,
 ) -> Result<tauri::ipc::Response, String> {
@@ -828,7 +830,14 @@ async fn load_cover(
     tokio::select! {
         biased;
         _ = settings.changed() => Err("服务端设置已变更，请刷新列表".into()),
-        bytes = cache.load(media::cover_directory(&app), client, &expected, audio_id, &cover_link) => {
+        bytes = cache.load(
+            crate::network_cache::cache_root(&app).ok(),
+            client,
+            &expected,
+            audio_id,
+            &cover_link,
+            folder_name.as_deref().zip(filename.as_deref()),
+        ) => {
             bytes.map(tauri::ipc::Response::new)
         }
     }

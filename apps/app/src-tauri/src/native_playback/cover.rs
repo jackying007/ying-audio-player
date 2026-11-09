@@ -2,6 +2,7 @@ use super::{
     http::{digest, fetch, media_url},
     model::Connection,
 };
+use crate::network_cache;
 use reqwest::Client;
 use std::{
     collections::HashMap,
@@ -28,6 +29,7 @@ impl CoverCache {
         connection: &Connection,
         id: i64,
         link: &str,
+        location: Option<(&str, &str)>,
     ) -> Result<Vec<u8>> {
         let url = media_url(connection, link, id, "cover")?;
         let hash = url
@@ -36,13 +38,23 @@ impl CoverCache {
             .map(|(_, hash)| hash.into_owned())
             .filter(|hash| hash.len() == 64 && hash.bytes().all(|b| b.is_ascii_hexdigit()))
             .ok_or("无效的封面版本")?;
-        let Some(root) = root else {
+        let (Some(root), Some((folder_name, filename))) = (root, location) else {
             return fetch_cover(client, url).await;
         };
 
-        let settings = serde_json::to_vec(&[&connection.server_url, &connection.token])
+        let (folder_name, filename) = (folder_name.to_owned(), filename.to_owned());
+        let path = tauri::async_runtime::spawn_blocking(move || {
+            network_cache::cover_path(&root, &folder_name, &filename)
+        })
+        .await;
+        let Ok(Ok(path)) = path else {
+            return fetch_cover(client, url).await;
+        };
+
+        // Keep the 64-byte header and bind it to the connection and media version.
+        let version = serde_json::to_vec(&(&connection.server_url, &connection.token, id, hash))
             .map_err(|_| "无效的封面缓存连接")?;
-        let path = root.join(digest(&settings)).join(format!("{id}.cover"));
+        let version = digest(&version);
         let lock = {
             let mut locks = self.locks.lock().map_err(|_| "无法访问封面缓存")?;
             locks.retain(|_, lock| lock.strong_count() > 0);
@@ -56,8 +68,8 @@ impl CoverCache {
         };
         let guard = lock.lock_owned().await;
         let cached = tauri::async_runtime::spawn_blocking({
-            let (path, hash) = (path.clone(), hash.clone());
-            move || read_cover(&path, &hash)
+            let (path, version) = (path.clone(), version.clone());
+            move || read_cover(&path, &version)
         })
         .await
         .ok()
@@ -70,7 +82,7 @@ impl CoverCache {
         tauri::async_runtime::spawn_blocking(move || {
             // Keep the per-song lock until publication even if the caller is cancelled.
             let _guard = guard;
-            let _ = save_cover(&path, &hash, &bytes);
+            let _ = save_cover(&path, &version, &bytes);
             bytes
         })
         .await
@@ -86,11 +98,12 @@ async fn fetch_cover(client: &Client, url: reqwest::Url) -> Result<Vec<u8>> {
     Ok(bytes)
 }
 
-fn read_cover(path: &Path, hash: &str) -> Option<Vec<u8>> {
+fn read_cover(path: &Path, expected: &str) -> Option<Vec<u8>> {
+    network_cache::file_size(path)?;
     let mut file = fs::File::open(path).ok()?;
     let mut version = [0; 64];
     file.read_exact(&mut version).ok()?;
-    if version != hash.as_bytes() {
+    if version != expected.as_bytes() {
         return None;
     }
     let mut bytes = Vec::new();
@@ -100,11 +113,10 @@ fn read_cover(path: &Path, hash: &str) -> Option<Vec<u8>> {
     (!bytes.is_empty() && bytes.len() <= MAX_BYTES).then_some(bytes)
 }
 
-fn save_cover(path: &Path, hash: &str, bytes: &[u8]) -> std::io::Result<()> {
+fn save_cover(path: &Path, version: &str, bytes: &[u8]) -> std::io::Result<()> {
     let parent = path.parent().expect("cover cache entry has a parent");
-    fs::create_dir_all(parent)?;
     let mut file = tempfile::NamedTempFile::new_in(parent)?;
-    file.write_all(hash.as_bytes())?;
+    file.write_all(version.as_bytes())?;
     file.write_all(bytes)?;
     file.persist(path)?;
     Ok(())
@@ -138,7 +150,13 @@ mod tests {
                 )
                 .unwrap();
         });
-        let root = Some(directory.path().to_path_buf());
+        let root = Some(directory.path().join(".network-cache"));
+        let location = Some(("中文 歌单", "原版.MP3"));
+        let path = root
+            .as_ref()
+            .unwrap()
+            .join("中文 歌单")
+            .join("原版.MP3.cover");
         let connection = Connection {
             server_url: base.clone(),
             token: "fixture-key".into(),
@@ -148,32 +166,38 @@ mod tests {
         tauri::async_runtime::block_on(async {
             let cache = CoverCache::default();
             let (list, player) = tokio::join!(
-                cache.load(root.clone(), &client, &connection, 7, &link),
-                cache.load(root.clone(), &client, &connection, 7, &link)
+                cache.load(root.clone(), &client, &connection, 7, &link, location),
+                cache.load(root.clone(), &client, &connection, 7, &link, location)
             );
             assert_eq!(list.unwrap(), b"cover");
             assert_eq!(player.unwrap(), b"cover");
             server.join().unwrap();
+            assert_eq!(&fs::read(&path).unwrap()[64..], b"cover");
 
             let restarted = CoverCache::default();
             assert_eq!(
                 restarted
-                    .load(root.clone(), &client, &connection, 7, &link)
+                    .load(root.clone(), &client, &connection, 7, &link, location)
                     .await
                     .unwrap(),
                 b"cover",
             );
             let changed = format!("{base}/api/audios/7/cover?hash={}", "b".repeat(64));
             assert!(restarted
-                .load(root.clone(), &client, &connection, 7, &changed)
+                .load(root.clone(), &client, &connection, 7, &changed, location)
                 .await
                 .is_err());
             let other = Connection {
                 token: "other-key".into(),
-                ..connection
+                ..connection.clone()
             };
             assert!(restarted
-                .load(root, &client, &other, 7, &link)
+                .load(root.clone(), &client, &other, 7, &link, location)
+                .await
+                .is_err());
+            fs::write(path, b"truncated header").unwrap();
+            assert!(restarted
+                .load(root, &client, &connection, 7, &link, location)
                 .await
                 .is_err());
         });

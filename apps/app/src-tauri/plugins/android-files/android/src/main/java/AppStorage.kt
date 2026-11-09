@@ -7,7 +7,7 @@ import java.io.File
 object AppStorage {
     fun root(context: Context): File {
         // Ask Android to create this app's external directory before using its parent.
-        // Keep the database, network and .network-cache directly under Android/data/<package>.
+        // Keep the database and .network-cache directly under Android/data/<package>.
         val files = context.getExternalFilesDir(null) ?: error("应用外部存储不可用")
         check(Environment.getExternalStorageState(files) == Environment.MEDIA_MOUNTED) {
             "应用外部存储不可写，请检查设备存储状态"

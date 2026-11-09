@@ -27,7 +27,7 @@ export function AudioCover({ audio }: { audio: AudioInfo }) {
         let blob: Blob
         if (audio.source === 'network') {
           if (!audio.coverLink) throw new Error('歌曲封面地址不存在')
-          blob = await getNetworkCover(audio.id, audio.coverLink)
+          blob = await getNetworkCover(audio, audio.coverLink)
         } else {
           const cover = await localAudio.getCover(audio.id)
           if (!cover) throw new Error('歌曲封面不存在')

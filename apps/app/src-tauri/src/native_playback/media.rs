@@ -207,11 +207,12 @@ pub(super) async fn artwork(
         let client = client.ok_or("无法加载网络封面")?;
         app.state::<CoverCache>()
             .load(
-                cover_directory(&app),
+                network_cache::cache_root(&app).ok(),
                 &client,
                 &connection,
                 song.id,
                 song.cover_link.as_deref().unwrap_or_default(),
+                song.folder_name.as_deref().zip(song.filename.as_deref()),
             )
             .await?
     } else {
@@ -230,13 +231,6 @@ pub(super) async fn artwork(
     })
     .await
     .map_err(|_| "无法准备歌曲封面")?
-}
-
-pub(super) fn cover_directory(app: &AppHandle) -> Option<PathBuf> {
-    app.path()
-        .app_cache_dir()
-        .ok()
-        .map(|root| root.join("network-covers"))
 }
 
 #[cfg(all(test, not(mobile)))]

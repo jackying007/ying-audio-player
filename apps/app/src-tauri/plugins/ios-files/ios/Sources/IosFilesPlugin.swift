@@ -34,13 +34,11 @@ final class IosFilesPlugin: Plugin, UIDocumentPickerDelegate {
         queue.async {
             do {
                 let root = try self.storageRoot()
-                for name in ["network", ".network-cache"] {
-                    var url = root.appendingPathComponent(name, isDirectory: true)
-                    try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
-                    var values = URLResourceValues()
-                    values.isExcludedFromBackup = true
-                    try url.setResourceValues(values)
-                }
+                var cache = root.appendingPathComponent(".network-cache", isDirectory: true)
+                try FileManager.default.createDirectory(at: cache, withIntermediateDirectories: true)
+                var values = URLResourceValues()
+                values.isExcludedFromBackup = true
+                try cache.setResourceValues(values)
                 invoke.resolve(PathResult(path: root.path))
             } catch {
                 invoke.reject(error.localizedDescription)

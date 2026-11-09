@@ -1708,14 +1708,15 @@ test('visible rows reuse a cover request until its hash or connection changes', 
     return new Response(new Uint8Array([1, 2, 3]), { headers: { 'Content-Type': 'image/png' } })
   }
   const base = 'http://localhost:8787/api/audios/910/cover?hash='
+  const audio = { id: 910, folderName: '我的音乐', filename: 'song.mp3' }
   const first = base + 'a'.repeat(64)
-  await Promise.all([getNetworkCover(910, first), getNetworkCover(910, first)])
-  await getNetworkCover(910, first)
+  await Promise.all([getNetworkCover(audio, first), getNetworkCover(audio, first)])
+  await getNetworkCover(audio, first)
   expect(calls).toHaveLength(1)
   const next = base + 'b'.repeat(64)
-  await getNetworkCover(910, next)
+  await getNetworkCover(audio, next)
   expect(calls).toHaveLength(2)
   useNetworkSettings.setState({ token: 'different-key' })
-  await getNetworkCover(910, next)
+  await getNetworkCover(audio, next)
   expect(calls).toHaveLength(3)
 })

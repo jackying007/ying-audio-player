@@ -5,6 +5,7 @@ use std::{
     sync::Mutex,
 };
 use tauri::Manager;
+use tauri_plugin_fs::FsExt;
 
 type Result<T> = std::result::Result<T, String>;
 
@@ -136,7 +137,7 @@ fn validate_key(key: &CacheKey) -> Result<()> {
         || !key.connection.bytes().all(|c| c.is_ascii_hexdigit())
         || key.folder_id == 0
         || key.audio_id == 0
-        || key.filename.is_empty()
+        || !is_mp3(&key.filename)
         || !valid_hash(&key.hash)
         || key.has_lyrics != key.lyrics_hash.is_some()
         || key
@@ -149,11 +150,17 @@ fn validate_key(key: &CacheKey) -> Result<()> {
     Ok(())
 }
 
-fn cache_root(app: &tauri::AppHandle) -> Result<PathBuf> {
-    Ok(crate::storage::root(app)?.join("network"))
+fn is_mp3(filename: &str) -> bool {
+    Path::new(filename)
+        .extension()
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("mp3"))
 }
 
-// Reject links/junctions so cache operations stay inside the executable's network directory.
+pub(crate) fn cache_root(app: &tauri::AppHandle) -> Result<PathBuf> {
+    Ok(crate::storage::root(app)?.join(".network-cache"))
+}
+
+// Reject links and junctions in cache directories.
 fn directory(path: &Path, create: bool) -> Result<PathBuf> {
     if create {
         match fs::create_dir(path) {
@@ -175,42 +182,30 @@ fn directory(path: &Path, create: bool) -> Result<PathBuf> {
     Ok(canonical)
 }
 
-fn entry_directory(root: &Path, key: &CacheKey, create: bool) -> Result<PathBuf> {
-    validate_key(key)?;
+fn entry_directory(root: &Path, folder_name: &str, create: bool) -> Result<PathBuf> {
     let root = directory(root, create)?;
-    directory(&root.join(safe_name(&key.folder_name)), create)
+    directory(&root.join(safe_name(folder_name)), create)
 }
 
 fn marker_path(entry: &Path, key: &CacheKey) -> PathBuf {
-    entry
-        .parent()
-        .unwrap()
-        .parent()
-        .unwrap()
-        .join(".network-cache")
-        .join(entry.file_name().unwrap())
-        .join(format!("{}.json", audio_filename(key)))
+    entry.join(format!("{}.json", audio_filename(key)))
 }
 
-fn metadata_directory(entry: &Path, create: bool) -> Result<PathBuf> {
-    let executable_dir = entry
-        .parent()
-        .and_then(Path::parent)
-        .ok_or("无效缓存目录")?;
-    let metadata = directory(&executable_dir.join(".network-cache"), create)?;
-    directory(
-        &metadata.join(entry.file_name().ok_or("无效缓存目录")?),
-        create,
-    )
+#[cfg(any(mobile, target_os = "windows", target_os = "macos", test))]
+pub(crate) fn cover_path(root: &Path, folder_name: &str, filename: &str) -> Result<PathBuf> {
+    if !is_mp3(filename) {
+        return Err("无效缓存文件名".into());
+    }
+    let entry = entry_directory(root, folder_name, true)?;
+    Ok(entry.join(format!("{}.cover", safe_name(filename))))
 }
 
-fn file_size(path: &Path) -> Option<u64> {
+pub(crate) fn file_size(path: &Path) -> Option<u64> {
     let metadata = fs::symlink_metadata(path).ok()?;
     (metadata.is_file() && !metadata.file_type().is_symlink()).then_some(metadata.len())
 }
 
 fn cached_files(entry: &Path, key: &CacheKey) -> Option<CachedFiles> {
-    metadata_directory(entry, false).ok()?;
     let marker = marker_path(entry, key);
     if file_size(&marker)? > 16 * 1024 {
         return None;
@@ -280,8 +275,8 @@ fn save_files(root: &Path, key: CacheKey, audio: Vec<u8>, lyrics: Option<String>
     {
         return Err("缓存音频或歌词不完整，或超过大小限制".into());
     }
-    let entry = entry_directory(root, &key, true)?;
-    metadata_directory(&entry, true)?;
+    validate_key(&key)?;
+    let entry = entry_directory(root, &key.folder_name, true)?;
     // Replace even a same-version entry: the frontend may have failed to read its files.
     let marker = marker_path(&entry, &key);
     match fs::remove_file(&marker) {
@@ -312,7 +307,7 @@ fn save_files(root: &Path, key: CacheKey, audio: Vec<u8>, lyrics: Option<String>
 
 fn read_files(root: &Path, key: &CacheKey) -> Result<Option<CachedFiles>> {
     validate_key(key)?;
-    Ok(entry_directory(root, key, false)
+    Ok(entry_directory(root, &key.folder_name, false)
         .ok()
         .and_then(|entry| cached_files(&entry, key)))
 }
@@ -360,7 +355,17 @@ pub(crate) fn publish_playback(
 async fn read_cache(app: tauri::AppHandle, key: CacheKey) -> Result<Option<CachedFiles>> {
     tauri::async_runtime::spawn_blocking(move || {
         let _guard = CACHE_LOCK.lock().map_err(|e| e.to_string())?;
-        read_files(&cache_root(&app)?, &key)
+        let root = cache_root(&app)?;
+        let files = read_files(&root, &key)?;
+        if let Some(files) = &files {
+            let scope = app.fs_scope();
+            for path in std::iter::once(&files.audio_path).chain(files.lyrics_path.as_ref()) {
+                if !scope.is_allowed(path) {
+                    scope.allow_file(path).map_err(|e| e.to_string())?;
+                }
+            }
+        }
+        Ok(files)
     })
     .await
     .map_err(|e| e.to_string())?
@@ -492,11 +497,11 @@ mod tests {
         }
 
         fn root(&self) -> PathBuf {
-            self.0.join("network")
+            self.0.join(".network-cache")
         }
 
         fn entry(&self, key: &CacheKey) -> PathBuf {
-            entry_directory(&self.root(), key, false).unwrap()
+            entry_directory(&self.root(), &key.folder_name, false).unwrap()
         }
 
         fn save(&self, key: &CacheKey) {
@@ -656,7 +661,12 @@ mod tests {
         );
         assert_eq!(Path::new(&cached.audio_path), entry.join("song.mp3"));
         assert!(marker_path(&entry, &key).is_file());
-        assert_eq!(fs::read_dir(&entry).unwrap().count(), 2);
+        assert_eq!(
+            cover_path(&fixture.root(), &key.folder_name, &key.filename).unwrap(),
+            entry.join("song.mp3.cover")
+        );
+        assert_eq!(fs::read_dir(&entry).unwrap().count(), 3);
+        assert!(!fixture.0.join("network").exists());
     }
 
     #[test]
@@ -724,7 +734,7 @@ mod tests {
             Some("lyrics".into())
         )
         .is_err());
-        let new_entry = entry_directory(&fixture.root(), &new, true).unwrap();
+        let new_entry = entry_directory(&fixture.root(), &new.folder_name, true).unwrap();
         // Force a lyrics write failure after the audio has been written.
         fs::create_dir(new_entry.join("blocked.lrc")).unwrap();
         assert!(save_files(
