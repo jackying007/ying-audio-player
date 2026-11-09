@@ -69,7 +69,7 @@ Tauri 自动启动 Vite 并打开窗口。Vite 固定使用 `http://localhost:14
 - 真机开发通过 USB 调试连接，执行 `adb reverse tcp:1420 tcp:1420`、`adb reverse tcp:1421 tcp:1421`；访问本机 Worker 时再执行 `adb reverse tcp:8787 tcp:8787`，App 内填写 `http://localhost:8787`。`android:dev` 固定使用 `127.0.0.1`，保持开发页面处于安全上下文，并匹配服务端 CORS；Vite 由 Tauri 启动，不另起一个前端开发服务。发布版继续支持用户填写 HTTP/HTTPS 根地址。
 - Android 原生目录访问位于 `src-tauri/plugins/android-files`。通过系统目录选择器持久授权，只扫描所选目录直接子文件；Android 系统限制选择存储根目录、Download 根目录等位置时，应选择其下的音乐文件夹。取消选择不改索引；撤销授权后重新导入原文件夹恢复访问，授权失效的刷新保留旧索引。
 - URI 是不透明标识；文件夹名和原始 `filename` 来自文档提供者。播放和同步都按歌曲 ID 查询索引，禁止解析 URI 拼接文件名。同步通过 `localAudio.readAudio/readLyrics` 读取，播放将临时文件交给原生播放器。读取结束或播放器释放文件后清理临时副本，不永久复制导入目录。
-- Android 包名统一为 `ying.audio.player`。SQLite 与 `.network-cache` 直接位于 `Android/data/ying.audio.player/`；原生层通过 `getExternalFilesDir(null)` 取得系统创建目录的父目录，不硬编码存储盘路径，不申请全盘权限。外部存储不可写时报错，不回退内部目录；卸载仍清除这些数据。更换包名视为新应用，旧包私有数据、设置及目录授权不自动迁移，需重新配置和导入。桌面继续使用可执行文件同目录。音乐列表在 Android 单击播放，桌面双击；布局沿用响应式界面。
+- Android 包名统一为 `ying.audio.player`。SQLite 与 `network-cache` 直接位于 `Android/data/ying.audio.player/`；原生层通过 `getExternalFilesDir(null)` 取得系统创建目录的父目录，不硬编码存储盘路径，不申请全盘权限。外部存储不可写时报错，不回退内部目录；卸载仍清除这些数据。更换包名视为新应用，旧包私有数据、设置及目录授权不自动迁移，需重新配置和导入。桌面继续使用可执行文件同目录。音乐列表在 Android 单击播放，桌面双击；布局沿用响应式界面。
 - 移动端原生播放直接读取和写入磁盘缓存。保留的移动缓存 IPC 走 JSON，二进制数据分为最多 64 KiB 的有序数据块，收齐并校验总长度后发布完成标记。
 - 使用 Media3 原生播放服务，支持切后台或锁屏后连续播放，以及通知栏、锁屏和耳机的播放控制。从最近任务划掉 App 时停止播放并清理通知。返回键先关闭弹层与侧栏，再收起全屏歌词，再返回历史页面，无历史时退出 App。
 - 原生代码测试：完成一次 Tauri Android 构建生成依赖配置后，在 `src-tauri/gen/android` 执行 `./gradlew.bat :tauri-plugin-android-files:testDebugUnitTest`；这些 JVM 单元测试不启动 App 或模拟器。改动 Kotlin、Rust、IPC 后同步检查两端类型和 capabilities。
@@ -79,7 +79,7 @@ Tauri 自动启动 Vite 并打开窗口。Vite 固定使用 `http://localhost:14
 - 支持 iOS 16.4 及以上的 iPhone、iPad。使用 macOS 完整 Xcode（含 iOS SDK 和模拟器）、XcodeGen、CocoaPods、libimobiledevice，并安装 `aarch64-apple-ios` 与 `aarch64-apple-ios-sim` Rust targets（Intel Mac 的模拟器使用 `x86_64-apple-ios`）。在 `apps/app` 运行 `bun run ios:init` 初始化缺失的工程，`bun run ios:dev` 开发，`bun run ios:build` 打包。真机签名在本地配置 Xcode 开发团队或设置 `APPLE_DEVELOPMENT_TEAM`。
 - 模拟器可用 `http://localhost:8787` 访问本机 Worker。真机 Vite 热更新使用 `bun run ios:dev --host`（Vite 读取 Tauri 提供的 `TAURI_DEV_HOST`）；联调默认 CORS 的 Worker 时使用模拟器 localhost 或安装已构建的 App。真机访问局域网 Worker 时使 Worker 监听局域网地址，App 填写 Mac 的局域网地址及端口，并允许 iOS 的局域网访问提示。内置 WebView 允许用户配置 HTTP 或 HTTPS；发布版 Tauri 来源已由 Worker 放行。
 - 通过系统「文件」选择音乐文件夹，仅扫描直接子文件。Swift 插件 `src-tauri/plugins/ios-files` 保存目录授权书签并协调读取，Rust 负责索引。授权失效后重新选择原文件夹恢复访问；刷新失败保留旧索引；移除导入记录释放授权书签并保留原文件。
-- SQLite、授权书签和 `.network-cache` 位于应用沙盒的 `Library/Application Support/YingAudioPlayer`，缓存目录排除系统备份。歌曲单击播放，通过 AVPlayer 和后台音频会话连续播放，可在锁屏、控制中心和耳机上操作。强制退出 App 停止播放。锁屏期间加载未缓存歌曲若超过系统允许的后台准备时间，暂停并显示可重试错误。
+- SQLite、授权书签和 `network-cache` 位于应用沙盒的 `Library/Application Support/YingAudioPlayer`，缓存目录排除系统备份。歌曲单击播放，通过 AVPlayer 和后台音频会话连续播放，可在锁屏、控制中心和耳机上操作。强制退出 App 停止播放。锁屏期间加载未缓存歌曲若超过系统允许的后台准备时间，暂停并显示可重试错误。
 - 书签和文件扫描逻辑可用 macOS 主机上的 Swift 测试验证。在 `apps/app` 执行 `ios_plugin=src-tauri/plugins/ios-files/ios; swiftc "$ios_plugin/Sources/FolderAccess.swift" "$ios_plugin/Tests/FolderAccessTests.swift" -o /tmp/ying-ios-folder-access-tests && /tmp/ying-ios-folder-access-tests`。系统选择器与实际安全作用域由 iOS 真机验证。
 
 ## 音乐与同步约定
@@ -87,14 +87,14 @@ Tauri 自动启动 Vite 并打开窗口。Vite 固定使用 `http://localhost:14
 - 侧栏「本地」展开后可删除文件夹，确认后仅移除导入记录和本地歌曲索引，保留磁盘原文件及云端歌曲，可随时重新导入。移除当前播放歌曲所在文件夹会停止播放，并从队列清除该文件夹歌曲；同步或刷新期间不可移除。
 - 侧栏「网络」展开后可删除整个云端文件夹，确认后删除其中全部歌曲、音频、歌词、封面及上传暂存资源，不可恢复；保留本地原始文件与已下载的磁盘缓存。同名本地文件夹同步与网络删除互斥。删除成功后停止该文件夹的播放、清除队列条目和内存缓存；当前位于该文件夹时返回网络首页。以后主动同步同名本地文件夹可重新创建云端文件夹。
 - 只扫描目录直接子文件中的 MP3，扩展名不区分大小写；不递归。同名 LRC 为歌词，封面取自音频内嵌图片。
-- 本地 SQLite 为**可执行文件同目录**的 `localAudio.sqlite3`，开发时通常在 `apps/app/src-tauri/target/debug`；目录需可写，移动程序或清理构建目录会影响索引。
+- 本地 SQLite 为**可执行文件同目录**的 `local-audio.sqlite3`，开发时通常在 `apps/app/src-tauri/target/debug`；目录需可写，移动程序或清理构建目录会影响索引。
 - 查询、重复导入和同步都使用已有索引，不隐式扫描；文件增删或标签变化后先手动刷新。刷新事务保留仍存在歌曲的 ID，失败保留旧索引；元数据读取失败仍可入库并显示警告。
 - 同步按文件夹名称精确合并、按「文件夹 + 去掉末尾 .mp3 的文件名」匹配歌曲（扩展名忽略大小写）；同名覆盖，云端独有歌曲保留。上传音频、歌词、封面和本地歌曲元数据，不提交本地数据库 ID、绝对路径、`scanError` 或整个 SQLite 文件。
 - 仅保存音频 `hash` 与可空的 `lyricsHash`，分别为文件原始内容的 SHA-256；不保存封面 hash。封面取自音频内嵌图片，随音频 hash 更新。创建上传返回 `requiredFiles` 和 `unchanged`；音频、歌词分别去重并补传缺失文件，完全一致时跳过；仅元数据变化复用对象。上传及提交时核对 R2 实际音频、歌词摘要。
 - 同步逐首执行并显示成功、跳过及失败数量；普通文件失败继续，鉴权失败停止。同一文件夹同步期间禁用重复同步和刷新。索引声明有歌词却读取失败时，该歌曲同步失败；无歌词或封面时覆盖会清除旧关联。
 - 网络播放通过查询参数 `authToken` 携带密钥下载完整音频。原生平台由播放器读取临时文件，WebView 后端转为 Blob 播放；封面按需加载，歌词或封面失败不阻止音频。音频上限 50 MiB、歌词 1 MiB、封面 10 MiB。
-- 原生平台按「磁盘 → 网络」读取并由 Rust 保存，WebView 后端按「内存 → 磁盘 → 网络」读取并通过二进制 IPC 保存。下载后开始播放，随后在后台写入各平台数据目录中的 `.network-cache/<歌曲文件夹名>/<原始文件名>`。同目录保存同名 LRC 和以完整音频文件名加 `.json` 命名的完成标记。保留中文、空格和扩展名大小写，仅处理文件系统非法名称。桌面开发缓存通常位于 `apps/app/src-tauri/target/debug/.network-cache`，目录需可写。完成标记保存音频 hash、歌词 hash 和连接摘要，不含明文密钥。不同连接的同路径文件覆盖保存，只匹配当前连接的缓存。原生网络播放用独立的临时文件，播放器释放文件后清理。
-- 磁盘缓存按列表已有音频 hash 与歌词 hash 及歌词存在状态匹配，不额外请求标识。命中时不请求音频与歌词；文件夹和歌曲列表仍联网，暂不支持完整离线浏览。新版本覆盖原文件，无歌词时删除旧 LRC。缓存使用临时文件和完成标记；文件缺失、长度不符或读取失败时重新下载。歌词下载失败时播放音频并警告，不发布完整缓存；保存失败不阻止本次播放。可手动删除 `.network-cache` 清理缓存。
+- 原生平台按「磁盘 → 网络」读取并由 Rust 保存，WebView 后端按「内存 → 磁盘 → 网络」读取并通过二进制 IPC 保存。下载后开始播放，随后在后台写入各平台数据目录中的 `network-cache/<歌曲文件夹名>/<原始文件名>`。同目录保存同名 LRC 和以完整音频文件名加 `.json` 命名的完成标记。保留中文、空格和扩展名大小写，仅处理文件系统非法名称。桌面开发缓存通常位于 `apps/app/src-tauri/target/debug/network-cache`，目录需可写。完成标记保存音频 hash、歌词 hash 和连接摘要，不含明文密钥。不同连接的同路径文件覆盖保存，只匹配当前连接的缓存。原生网络播放用独立的临时文件，播放器释放文件后清理。
+- 磁盘缓存按列表已有音频 hash 与歌词 hash 及歌词存在状态匹配，不额外请求标识。命中时不请求音频与歌词；文件夹和歌曲列表仍联网，暂不支持完整离线浏览。新版本覆盖原文件，无歌词时删除旧 LRC。缓存使用临时文件和完成标记；文件缺失、长度不符或读取失败时重新下载。歌词下载失败时播放音频并警告，不发布完整缓存；保存失败不阻止本次播放。可手动删除 `network-cache` 清理缓存。
 - 网络封面按连接和歌曲音频 hash 缓存。App 内共用有大小上限的内存缓存，原生平台的列表和系统媒体面板共用歌曲目录中的 `<原始文件名>.cover`。封面可独立于音频和歌词缓存，未命中时合并同一首歌的封面下载。
 - 本地和网络共用暂停、上一首/下一首、顺序/随机/单曲循环、进度、音量及歌词。WebView 后端使用请求序号防竞态并回收 Blob URL，原生平台由 Rust 维护队列和会话版本并忽略已取消的媒体加载；覆盖当前歌曲后同步更新当前条目及队列 hash。
 - 地址和密钥保存在 localStorage 的 `ying-audio-player-network`；音量和模式保存在 `ying-audio-player-settings`。修改连接配置时终止旧网络请求、停止网络播放并释放网络缓存，本地播放不受影响。

@@ -150,7 +150,7 @@ mod tests {
                 )
                 .unwrap();
         });
-        let root = Some(directory.path().join(".network-cache"));
+        let root = Some(directory.path().join("network-cache"));
         let location = Some(("中文 歌单", "原版.MP3"));
         let path = root
             .as_ref()

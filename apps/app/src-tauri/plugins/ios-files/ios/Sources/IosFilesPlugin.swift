@@ -34,7 +34,7 @@ final class IosFilesPlugin: Plugin, UIDocumentPickerDelegate {
         queue.async {
             do {
                 let root = try self.storageRoot()
-                var cache = root.appendingPathComponent(".network-cache", isDirectory: true)
+                var cache = root.appendingPathComponent("network-cache", isDirectory: true)
                 try FileManager.default.createDirectory(at: cache, withIntermediateDirectories: true)
                 var values = URLResourceValues()
                 values.isExcludedFromBackup = true

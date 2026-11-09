@@ -511,7 +511,7 @@ fn remove_indexed_folder_with(
 }
 
 fn database_path(app: &tauri::AppHandle) -> Result<PathBuf> {
-    Ok(crate::storage::root(app)?.join("localAudio.sqlite3"))
+    Ok(crate::storage::root(app)?.join("local-audio.sqlite3"))
 }
 
 #[tauri::command]
@@ -740,7 +740,7 @@ mod tests {
         }
 
         fn db(&self) -> Connection {
-            open_database(&self.0.join("data/localAudio.sqlite3")).unwrap()
+            open_database(&self.0.join("data/local-audio.sqlite3")).unwrap()
         }
 
         fn music(&self) -> PathBuf {

@@ -157,7 +157,7 @@ fn is_mp3(filename: &str) -> bool {
 }
 
 pub(crate) fn cache_root(app: &tauri::AppHandle) -> Result<PathBuf> {
-    Ok(crate::storage::root(app)?.join(".network-cache"))
+    Ok(crate::storage::root(app)?.join("network-cache"))
 }
 
 // Reject links and junctions in cache directories.
@@ -497,7 +497,7 @@ mod tests {
         }
 
         fn root(&self) -> PathBuf {
-            self.0.join(".network-cache")
+            self.0.join("network-cache")
         }
 
         fn entry(&self, key: &CacheKey) -> PathBuf {

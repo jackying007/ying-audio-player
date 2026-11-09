@@ -31,12 +31,12 @@ class AppStorageTest {
         val files = files()
         ShadowEnvironment.setExternalStorageState(files, Environment.MEDIA_MOUNTED)
         val root = AppStorage.root(context(files))
-        File(root, "localAudio.sqlite3").writeBytes(byteArrayOf(0, -1, 42))
-        File(root, ".network-cache/音乐").mkdirs()
-        File(root, ".network-cache/音乐/原版.MP3").writeBytes(byteArrayOf(1, 2))
+        File(root, "local-audio.sqlite3").writeBytes(byteArrayOf(0, -1, 42))
+        File(root, "network-cache/音乐").mkdirs()
+        File(root, "network-cache/音乐/原版.MP3").writeBytes(byteArrayOf(1, 2))
         assertEquals(files.parentFile, root)
-        assertArrayEquals(byteArrayOf(0, -1, 42), File(files.parentFile, "localAudio.sqlite3").readBytes())
-        assertTrue(File(files.parentFile, ".network-cache/音乐/原版.MP3").isFile)
+        assertArrayEquals(byteArrayOf(0, -1, 42), File(files.parentFile, "local-audio.sqlite3").readBytes())
+        assertTrue(File(files.parentFile, "network-cache/音乐/原版.MP3").isFile)
         assertFalse(File(files.parentFile, "network").exists())
         assertEquals(0, files.listFiles()!!.size)
     }
@@ -50,8 +50,8 @@ class AppStorageTest {
         for (state in listOf(Environment.MEDIA_MOUNTED_READ_ONLY, Environment.MEDIA_REMOVED)) {
             ShadowEnvironment.setExternalStorageState(files, state)
             assertThrows(IllegalStateException::class.java) { AppStorage.root(context(files)) }
-            assertFalse(File(files.parentFile, "localAudio.sqlite3").exists())
-            assertFalse(File(files.parentFile, ".network-cache").exists())
+            assertFalse(File(files.parentFile, "local-audio.sqlite3").exists())
+            assertFalse(File(files.parentFile, "network-cache").exists())
         }
     }
 
