@@ -11,6 +11,7 @@
     "lint": "oxlint",
     "desktop:dev": "tauri dev",
     "windows:build": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-windows.ps1",
+    "mac:build": "tauri build --bundles dmg",
     "android:dev": "tauri android dev --host 127.0.0.1",
     "android:build": "tauri android build --target aarch64 --apk",
     "ios:dev": "tauri ios dev",
