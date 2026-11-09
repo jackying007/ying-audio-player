@@ -2,7 +2,7 @@ CREATE TABLE `audioGarbage` (
 	`key` text PRIMARY KEY
 );
 --> statement-breakpoint
-CREATE TABLE `audioUploads` (
+CREATE TABLE `audioUpload` (
 	`id` text PRIMARY KEY,
 	`folderId` integer NOT NULL,
 	`filename` text NOT NULL,
@@ -14,10 +14,10 @@ CREATE TABLE `audioUploads` (
 	`lyricsHash` text,
 	`createdAt` integer NOT NULL,
 	`committed` integer DEFAULT 0 NOT NULL,
-	CONSTRAINT `fk_audioUploads_folderId_folders_id_fk` FOREIGN KEY (`folderId`) REFERENCES `folders`(`id`)
+	CONSTRAINT `fk_audioUpload_folderId_folder_id_fk` FOREIGN KEY (`folderId`) REFERENCES `folder`(`id`)
 );
 --> statement-breakpoint
-CREATE TABLE `audios` (
+CREATE TABLE `audio` (
 	`id` integer PRIMARY KEY AUTOINCREMENT,
 	`folderId` integer NOT NULL,
 	`filename` text NOT NULL,
@@ -26,13 +26,13 @@ CREATE TABLE `audios` (
 	`keyPrefix` text NOT NULL,
 	`hash` text NOT NULL,
 	`lyricsHash` text,
-	CONSTRAINT `fk_audios_folderId_folders_id_fk` FOREIGN KEY (`folderId`) REFERENCES `folders`(`id`)
+	CONSTRAINT `fk_audio_folderId_folder_id_fk` FOREIGN KEY (`folderId`) REFERENCES `folder`(`id`)
 );
 --> statement-breakpoint
-CREATE TABLE `folders` (
+CREATE TABLE `folder` (
 	`id` integer PRIMARY KEY AUTOINCREMENT,
 	`name` text NOT NULL UNIQUE
 );
 --> statement-breakpoint
-CREATE UNIQUE INDEX `pendingSongUpload` ON `audioUploads` (`folderId`,substr("filename", 1, length("filename") - 4)) WHERE "audioUploads"."committed" = 0;--> statement-breakpoint
-CREATE UNIQUE INDEX `audioIndex` ON `audios` (`folderId`,substr("filename", 1, length("filename") - 4));
+CREATE UNIQUE INDEX `pendingSongUpload` ON `audioUpload` (`folderId`,substr("filename", 1, length("filename") - 4)) WHERE "audioUpload"."committed" = 0;--> statement-breakpoint
+CREATE UNIQUE INDEX `audioIndex` ON `audio` (`folderId`,substr("filename", 1, length("filename") - 4));

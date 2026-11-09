@@ -21,7 +21,7 @@ Bun workspace + Turborepo，包含 Tauri 桌面/Android/iOS 播放器和 Cloudfl
 - 服务端 HTTP 请求统一使用 `@jying/http`，业务调用从 `@/api` 导入。当前网络接口全部集中在 `apps/app/src/api/business/network.ts`，统一导出 `networkApi`；新增网络接口继续放在此文件。Windows、macOS、Android 和 iOS 的原生播放是例外，Rust 下载音频、歌词和封面，校验服务端路径、鉴权和 hash，并拒绝重定向。歌曲列表和系统媒体面板共用封面缓存。
 - 沿用现有工厂格式：业务文件默认导出接收 `HttpRequest` 的函数，返回接口方法对象；`api/index.ts` 通过动态导入加载工厂并注入 `http-client.ts` 的共享 `http` 实例。请求与响应类型统一放在 `api/types.ts`。
 - 接口方法按行为命名，如 `listFolders`、`createFolder`、`createUpload`、`commitUpload`；媒体下载使用 `getAudio`、`getLyrics`、`getCover`。
-- 业务方法使用相对 API 路径（如 `/folders`）；`http-client.ts` 统一从当前 App 设置读取服务端地址和密钥，拼接服务端地址及 `/api`，通过 `query.authToken` 传递原始密钥鉴权（不带 Bearer 前缀）。收到现有歌曲条目的完整媒体 URL 时，先通过 `mediaPath` 校验属于当前服务端并提取相对路径；共享请求钩子将 URL 已有查询参数合并到 `query`，保留 hash 参数并以当前设置覆盖 `authToken`。
+- 业务方法使用相对 API 路径（如 `/folder/list`）；`http-client.ts` 统一从当前 App 设置读取服务端地址和密钥，拼接服务端地址及 `/api`，通过 `query.authToken` 传递原始密钥鉴权（不带 Bearer 前缀）。收到现有歌曲条目的完整媒体 URL 时，先通过 `mediaPath` 校验属于当前服务端并提取相对路径；共享请求钩子将 URL 已有查询参数合并到 `query`，保留 hash 参数并以当前设置覆盖 `authToken`。
 - JSON 请求体使用库的 `data`，查询参数使用 `query`，二进制上传使用 `body`。媒体方法通过 `responseType` 直接返回音频 `ArrayBuffer`、歌词文本或封面 `Blob`，调用方直接使用解析后的数据。
 - 服务端错误统一为文本；`afterError` 使用 `Response.text()` 读取错误消息，空内容使用带状态码的默认提示，构造保留 `status`、`statusText` 的 `HttpError`。业务按需检查 `HttpError.status`。
 - `signal` 仅在调用方实际需要取消请求时添加并透传，如播放、封面加载和同步；`listFolders`、`listAudios` 保持无 `signal` 参数。连接级取消统一由 `http-client.ts` 维护，与调用方信号合并；地址或密钥变化时取消旧连接请求。
@@ -101,14 +101,14 @@ Tauri 自动启动 Vite 并打开窗口。Vite 固定使用 `http://localhost:14
 
 ## 服务端数据与接口
 
-- API 基础路径为 `/api`：`GET/POST /folders`、`DELETE /folders/:id`、`GET /folders/:id/audios`、`POST /folders/:id/uploads`、`PUT /uploads/:id/{audio,lyrics,cover}`、`POST /uploads/:id/commit`、`GET /audios/:id/{audio,lyrics,cover}`。文件夹删除幂等返回 `{ ok: true }`，D1 原子登记全部资源清理并删除文件夹、歌曲及上传记录，随后立即后台尝试清理 R2；失败保留队列，由每小时任务重试。
-- D1/R2 绑定名为 `D1`、`R2`；schema 位于 `apps/server/src/db/schema/audio.ts`，歌曲通过表达式唯一索引按「folderId + filename 去掉末尾 .mp3」匹配，保留其余大小写，不额外存储歌曲匹配名称。
-- `folders` 保存文件夹；`audios` 保存已发布的元数据、R2 引用和音频 hash 与歌词 hash。R2 key 为 `文件夹名/去扩展名文件名/audio|lyrics|cover`；不保留历史对象。音频/封面 URL 使用音频 `hash`，歌词 URL 使用 `lyricsHash` 作为 `hash` 查询参数，区分缓存并拒绝过期请求，不再提供 `version`。
-- `audioUploads` 保存待发布元数据、hash 和复用/新上传的对象引用；其 hash 用于本次上传校验，`audios` 的 hash 用于下次比较。上传 hash 必填；同曲最多一个未过期待提交会话。上传记录保存必需文件及完成状态，旧对象存在不能代替本次上传完成。
+- API 基础路径为 `/api`：`GET /folder/list`、`POST /folder`、`DELETE /folder/:id`、`GET /audio/list?folderId=<id>`、`POST /upload`、`PUT /upload/:id/{audio,lyrics,cover}`、`POST /upload/:id/commit`、`GET /audio/:id?kind=<audio|lyrics|cover>`。文件夹删除幂等返回 `{ ok: true }`，D1 原子登记全部资源清理并删除文件夹、歌曲及上传记录，随后立即后台尝试清理 R2；失败保留队列，由每小时任务重试。
+- D1/R2 绑定名为 `D1`、`R2`；schema 位于 `apps/server/src/db/schema.ts`，SQL 表名使用单数，导出变量加 `Table` 后缀。歌曲通过表达式唯一索引按「folderId + filename 去掉末尾 .mp3」匹配，保留其余大小写，不额外存储歌曲匹配名称。
+- `folder` 保存文件夹；`audio` 保存已发布的元数据、R2 引用和音频 hash 与歌词 hash。R2 key 为 `文件夹名/去扩展名文件名/audio|lyrics|cover`；不保留历史对象。音频/封面 URL 使用音频 `hash`，歌词 URL 使用 `lyricsHash` 作为 `hash` 查询参数，区分缓存并拒绝过期请求。
+- 创建上传会话时在 JSON 请求体中传入 `folderId`。`audioUpload` 保存待发布元数据、hash 和复用/新上传的对象引用；其 hash 用于本次上传校验，`audio` 的 hash 用于下次比较。上传 hash 必填；同曲最多一个未过期待提交会话。上传记录保存必需文件及完成状态，旧对象存在不能代替本次上传完成。
 - D1 与 R2 不共享事务：文件齐全后通过 Drizzle `db.batch` 原子更新歌曲、旧文件清理队列及提交标记。保留幂等、过期和并发检查；固定路径覆盖前设置 `updating` 并阻止媒体读取，提交后恢复；失败不回滚旧文件，释放失败会话以便立即重试；失败或过期后的下一次同步强制重传。D1 限制正常同曲并发，删除/过期和在途请求的极端交错仍可能冲突。
 - `audioGarbage` 仅保存待删除 R2 key。每小时清理替换的旧文件及超过 30 分钟的上传记录/暂存对象；删除前检查当前歌曲和未过期待提交上传的引用，删除失败保留队列重试。R2 桶保持私有。
 - 数据库访问由 `src/db/middleware.ts` 配置的 Drizzle 实例提供；接口通过 `c.get('db')` 获取，定时任务通过 `createDb` 初始化。
-- `business/base.validator.ts` 提供路由参数校验，数值 ID 为正安全整数，上传 ID 为 UUID；`app.error.handler.ts` 统一处理 HTTP 异常。
+- `business/dto.ts` 集中定义请求校验，数值 ID 为正安全整数，上传 ID 由服务端生成 UUID。`app.error.handler.ts` 统一处理 HTTP 异常。
 - 服务端请求的 Zod schema 校验统一使用 `business/base.validator.ts` 导出的 `zValidator` 中间件，通过 `c.req.valid(...)` 获取校验后的数据；不要在路由中手写 `safeParse` / `parse` 及校验错误处理。
 - 服务端通过 `API_TOKEN` 对查询参数 `authToken` 的原始值做时序安全比较，仅接受 query 鉴权。本地配置位于 `.env`，示例为 `.env.example`。鉴权与 CORS 在 `main.ts`，放行开发浏览器/Tauri 来源的预检；实际密钥不写入文档、日志或提交。
 

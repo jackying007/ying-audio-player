@@ -11,25 +11,25 @@ function mediaPath(url: string) {
 export default function (http: HttpRequest) {
   return {
     listFolders() {
-      return http.get<NetworkFolder[]>('/folders')
+      return http.get<NetworkFolder[]>('/folder/list')
     },
     createFolder(name: string, signal?: AbortSignal) {
-      return http.post<NetworkFolder>('/folders', { data: { name }, signal })
+      return http.post<NetworkFolder>('/folder', { data: { name }, signal })
     },
     deleteFolder(id: number) {
-      return http.delete<NetworkMutationResult>(`/folders/${id}`)
+      return http.delete<NetworkMutationResult>(`/folder/${id}`)
     },
-    listAudios(id: string) {
-      return http.get<NetworkAudio[]>(`/folders/${encodeURIComponent(id)}/audios`)
+    listAudios(folderId: string) {
+      return http.get<NetworkAudio[]>('/audio/list', { query: { folderId } })
     },
     createUpload(folderId: number, data: UploadMetadata, signal?: AbortSignal) {
-      return http.post<UploadPlan>(`/folders/${folderId}/uploads`, { data, signal })
+      return http.post<UploadPlan>('/upload', { data: { ...data, folderId }, signal })
     },
     uploadFile(id: string, kind: FileKind, body: Blob, signal?: AbortSignal) {
-      return http.put<NetworkMutationResult>(`/uploads/${encodeURIComponent(id)}/${kind}`, { body, signal })
+      return http.put<NetworkMutationResult>(`/upload/${encodeURIComponent(id)}/${kind}`, { body, signal })
     },
     commitUpload(id: string, signal?: AbortSignal) {
-      return http.post<NetworkMutationResult>(`/uploads/${encodeURIComponent(id)}/commit`, { signal })
+      return http.post<NetworkMutationResult>(`/upload/${encodeURIComponent(id)}/commit`, { signal })
     },
     async getAudio(url: string, signal?: AbortSignal) {
       return http.get(mediaPath(url), { responseType: 'arrayBuffer', signal })

@@ -17,9 +17,14 @@ pub(super) fn media_url(connection: &Connection, link: &str, id: i64, kind: &str
     let invalid = || "网络歌曲地址无效，请刷新列表".to_owned();
     let server = Url::parse(&connection.server_url).map_err(|_| invalid())?;
     let mut url = Url::parse(link).map_err(|_| invalid())?;
+    let kind_matches = url
+        .query_pairs()
+        .filter_map(|(key, value)| (key == "kind").then_some(value))
+        .eq([kind]);
     if !matches!(server.scheme(), "http" | "https")
         || url.origin() != server.origin()
-        || url.path() != format!("/api/audios/{id}/{kind}")
+        || url.path() != format!("/api/audio/{id}")
+        || !kind_matches
         || !url.username().is_empty()
         || url.password().is_some()
         || connection.token.is_empty()
@@ -119,7 +124,7 @@ mod tests {
         let connection = connection("https://music.example".into());
         let url = media_url(
             &connection,
-            "https://music.example/api/audios/7/audio?hash=abc&authToken=stale#ignored",
+            "https://music.example/api/audio/7?kind=audio&hash=abc&authToken=stale#ignored",
             7,
             "audio",
         )
@@ -127,16 +132,21 @@ mod tests {
         assert_eq!(
             url.query_pairs().into_owned().collect::<Vec<_>>(),
             [
+                ("kind".into(), "audio".into()),
                 ("hash".into(), "abc".into()),
                 ("authToken".into(), connection.token.clone()),
             ]
         );
         assert!(url.fragment().is_none());
         for invalid in [
-            "http://music.example/api/audios/7/audio",
-            "https://other.example/api/audios/7/audio",
-            "https://music.example/api/audios/8/audio",
-            "https://user@music.example/api/audios/7/audio",
+            "http://music.example/api/audio/7?kind=audio",
+            "https://other.example/api/audio/7?kind=audio",
+            "https://music.example/api/audio/8?kind=audio",
+            "https://user@music.example/api/audio/7?kind=audio",
+            "https://music.example/api/audio/7/audio?kind=audio",
+            "https://music.example/api/audio/7",
+            "https://music.example/api/audio/7?kind=cover",
+            "https://music.example/api/audio/7?kind=audio&kind=cover",
         ] {
             assert!(
                 media_url(&connection, invalid, 7, "audio").is_err(),
@@ -153,7 +163,7 @@ mod tests {
             let mut request = String::new();
             let mut reader = BufReader::new(&socket);
             reader.read_line(&mut request).unwrap();
-            assert!(request.starts_with("GET /api/audios/7/audio?hash=abc&authToken="));
+            assert!(request.starts_with("GET /api/audio/7?kind=audio&hash=abc&authToken="));
             loop {
                 let mut line = String::new();
                 if reader.read_line(&mut line).unwrap() == 0 || line == "\r\n" {
@@ -164,7 +174,7 @@ mod tests {
         });
         let url = media_url(
             &connection(base.clone()),
-            &format!("{base}/api/audios/7/audio?hash=abc"),
+            &format!("{base}/api/audio/7?kind=audio&hash=abc"),
             7,
             "audio",
         )
@@ -216,7 +226,7 @@ mod tests {
         });
         let url = media_url(
             &connection(base.clone()),
-            &format!("{base}/api/audios/7/audio?hash=abc"),
+            &format!("{base}/api/audio/7?kind=audio&hash=abc"),
             7,
             "audio",
         )

@@ -161,7 +161,7 @@ mod tests {
             server_url: base.clone(),
             token: "fixture-key".into(),
         };
-        let link = format!("{base}/api/audios/7/cover?hash={}", "a".repeat(64));
+        let link = format!("{base}/api/audio/7?kind=cover&hash={}", "a".repeat(64));
         let client = super::super::http::client().unwrap();
         tauri::async_runtime::block_on(async {
             let cache = CoverCache::default();
@@ -182,7 +182,7 @@ mod tests {
                     .unwrap(),
                 b"cover",
             );
-            let changed = format!("{base}/api/audios/7/cover?hash={}", "b".repeat(64));
+            let changed = format!("{base}/api/audio/7?kind=cover&hash={}", "b".repeat(64));
             assert!(restarted
                 .load(root.clone(), &client, &connection, 7, &changed, location)
                 .await

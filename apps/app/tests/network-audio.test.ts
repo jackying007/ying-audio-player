@@ -205,6 +205,11 @@ const local: AudioInfo = {
 const json = (value: unknown, status = 200) =>
   new Response(JSON.stringify(value), { status, headers: { 'Content-Type': 'application/json' } })
 
+function audioListFolderId(url: string) {
+  const { pathname, searchParams } = new URL(url)
+  return pathname === '/api/audio/list' ? searchParams.get('folderId') : null
+}
+
 function prepareLocalRemoval() {
   useAppStore.setState({
     localFolderList: [
@@ -283,8 +288,9 @@ test('play all network songs replaces the queue in folder and song order and sta
   const requests: string[] = []
   fetchHandler = async url => {
     requests.push(url)
-    if (new URL(url).pathname.endsWith('/folders/2/audios')) return firstFolder.promise
-    if (new URL(url).pathname.endsWith('/folders/1/audios')) {
+    const folderId = audioListFolderId(url)
+    if (folderId === '2') return firstFolder.promise
+    if (folderId === '1') {
       secondFolderLoaded.resolve()
       return json([row])
     }
@@ -307,8 +313,8 @@ test('play all network songs replaces the queue in folder and song order and sta
   expect(player.playlistFolderId).toBeUndefined()
   expect(player.currentAudioInfo).toBe(player.audioList[0])
   expect(player.playState).toBe(PlayState.Playing)
-  expect(requests.filter(url => url.includes('/api/audios/'))).toEqual([
-    'http://localhost:8787/api/audios/3/audio?hash=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&authToken=secret'
+  expect(requests.filter(url => audioListFolderId(url) === null)).toEqual([
+    'http://localhost:8787/api/audio/3?kind=audio&hash=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&authToken=secret'
   ])
   playNextAudio()
   expect(useAudioStore.getState().currentAudioInfo?.id).toBe(2)
@@ -330,9 +336,9 @@ test.each(['local', 'network'] as const)(
       ]
     })
     fetchHandler = async url => {
-      const path = new URL(url).pathname
-      if (path.endsWith('/folders/1/audios')) return json([row])
-      if (path.endsWith('/folders/2/audios')) return json([{ ...row, id: 2, folderId: 2 }])
+      const folderId = audioListFolderId(url)
+      if (folderId === '1') return json([row])
+      if (folderId === '2') return json([{ ...row, id: 2, folderId: 2 }])
       return new Response('music')
     }
     useAppStore.setState({ playMode: 'shuffle' })
@@ -374,7 +380,7 @@ test('play all network songs preserves playback when any folder request fails', 
     ]
   })
   fetchHandler = async url =>
-    new URL(url).pathname.endsWith('/folders/1/audios') ? json([row]) : new Response('加载歌曲失败', { status: 500 })
+    audioListFolderId(url) === '1' ? json([row]) : new Response('加载歌曲失败', { status: 500 })
   await expect(playAllNetworkAudios()).rejects.toThrow('加载歌曲失败')
   expect(useAudioStore.getState()).toBe(before)
 })
@@ -406,11 +412,12 @@ test.each(['removed', 'removing'])('play all network songs excludes a folder %s 
   const response = deferred<Response>()
   const requested = deferred<void>()
   fetchHandler = async url => {
-    if (new URL(url).pathname.endsWith('/folders/1/audios')) {
+    const folderId = audioListFolderId(url)
+    if (folderId === '1') {
       requested.resolve()
       return response.promise
     }
-    if (new URL(url).pathname.endsWith('/folders/2/audios')) return json([{ ...row, id: 2, folderId: 2 }])
+    if (folderId === '2') return json([{ ...row, id: 2, folderId: 2 }])
     return new Response('music')
   }
   const playing = playAllNetworkAudios()
@@ -450,7 +457,7 @@ test('deleting a network folder clears its list, playback and memory cache but p
   const revoke = spyOn(URL, 'revokeObjectURL')
   useNetworkAudioStore.setState({ entries: { '1': { audios: [remote], loading: false } } })
   fetchHandler = async (url, init) => {
-    expect(url).toBe('http://localhost:8787/api/folders/1?authToken=secret')
+    expect(url).toBe('http://localhost:8787/api/folder/1?authToken=secret')
     expect(init.method).toBe('DELETE')
     return json({ ok: true })
   }
@@ -517,7 +524,7 @@ test('deleting a network folder invalidates pending folder and song list respons
   const audiosPending = deferred<Response>()
   fetchHandler = async (url, init) => {
     if (init.method === 'DELETE') return json({ ok: true })
-    if (new URL(url).pathname.endsWith('/folders')) {
+    if (new URL(url).pathname.endsWith('/folder/list')) {
       foldersReady.resolve()
       return foldersPending.promise
     }
@@ -655,10 +662,14 @@ test('a later explicit sync recreates a deleted network folder by name', async (
   fetchHandler = async () => json({ ok: true })
   await removeNetworkFolder(1)
   fetchHandler = async (url, init) => {
-    if (new URL(url).pathname.endsWith('/folders') && init.method === 'POST') return json({ id: 3, name: '音乐' })
-    if (new URL(url).pathname.endsWith('/folders')) return json([{ id: 3, name: '音乐' }])
-    if (new URL(url).pathname.endsWith('/uploads')) return json({ id: null, unchanged: true, requiredFiles: [] })
-    if (new URL(url).pathname.endsWith('/audios')) return json([{ ...row, folderId: 3 }])
+    if (new URL(url).pathname.endsWith('/folder') && init.method === 'POST') return json({ id: 3, name: '音乐' })
+    if (new URL(url).pathname.endsWith('/folder/list')) return json([{ id: 3, name: '音乐' }])
+    if (new URL(url).pathname === '/api/upload') {
+      expect(init.method).toBe('POST')
+      expect(JSON.parse(String(init.body)).folderId).toBe(3)
+      return json({ id: null, unchanged: true, requiredFiles: [] })
+    }
+    if (new URL(url).pathname.endsWith('/audio/list')) return json([{ ...row, folderId: 3 }])
     throw new Error(`Unexpected request: ${url}`)
   }
   await syncLocalFolder('1')
@@ -958,7 +969,7 @@ test('late download cannot replace a more recently selected song', async () => {
     started = done
   })
   fetchHandler = async url =>
-    url.includes('/1/')
+    new URL(url).pathname === '/api/audio/1'
       ? await new Promise<Response>(done => {
           resolve = done
           started()
@@ -1166,7 +1177,7 @@ test('network folder names are carried into the playback metadata', async () => 
 test('loading songs before the folder list resolves the real folder name before caching', async () => {
   useNetworkAudioStore.setState({ folders: [] })
   fetchHandler = async url =>
-    new URL(url).pathname.endsWith('/folders') ? json([{ id: 1, name: '中文 歌单' }]) : json([row])
+    new URL(url).pathname.endsWith('/folder/list') ? json([{ id: 1, name: '中文 歌单' }]) : json([row])
   await loadNetworkAudios('1')
   const audio = useNetworkAudioStore.getState().entries['1'].audios![0]
   expect(audio.folderName).toBe('中文 歌单')
@@ -1201,7 +1212,7 @@ test('replacing the current network song keeps repeat-one and next on the refres
   invalidateAudioCache(1, 'network')
   const downloads: string[] = []
   fetchHandler = async url => {
-    if (url.includes('/folders/'))
+    if (audioListFolderId(url) === '1')
       return json(
         rows.map(audio => ({
           ...audio,
@@ -1214,16 +1225,16 @@ test('replacing the current network song keeps repeat-one and next on the refres
   }
   await loadNetworkAudios('1')
   expect(useAudioStore.getState().currentAudioInfo?.link).toContain(
-    '/2/audio?hash=dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd'
+    '/2?kind=audio&hash=dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd'
   )
   useAppStore.setState({ playMode: 'repeat-one' })
   TestAudio.instance.listeners.get('ended')?.()
   await waitForPlayback(() => downloads.length === 1)
-  expect(downloads[0]).toContain('/2/audio?hash=dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd')
+  expect(downloads[0]).toContain('/2?kind=audio&hash=dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd')
   useAppStore.setState({ playMode: 'sequence' })
   playNextAudio()
   await waitForPlayback(() => downloads.length === 2)
-  expect(downloads[1]).toContain('/3/audio?hash=dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd')
+  expect(downloads[1]).toContain('/3?kind=audio&hash=dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd')
 })
 
 async function waitForPlayback(downloaded: () => boolean) {
@@ -1254,7 +1265,7 @@ test('network audio exposes cover availability without embedding cover data', ()
   const audio = toNetworkAudio({ ...row, coverMime: 'image/png' })
   expect(audio.hasCover).toBe(true)
   expect(audio.coverLink).toBe(
-    'http://localhost:8787/api/audios/1/cover?hash=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+    'http://localhost:8787/api/audio/1?kind=cover&hash=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
   )
   expect(audio).not.toHaveProperty('cover')
   expect(toNetworkAudio(row).hasCover).toBe(false)
@@ -1281,8 +1292,8 @@ test('document URI playback and sync use indexed IDs and preserve the original f
   expect(useAudioStore.getState().playState).toBe(PlayState.Playing)
   expect(useAudioStore.getState().currentLrc).toBe('[00:01]歌词')
   fetchHandler = async (url, init) => {
-    if (new URL(url).pathname.endsWith('/folders') && init.method === 'POST') return json({ id: 1, name: '音乐' })
-    if (new URL(url).pathname.endsWith('/uploads')) {
+    if (new URL(url).pathname.endsWith('/folder') && init.method === 'POST') return json({ id: 1, name: '音乐' })
+    if (new URL(url).pathname === '/api/upload') {
       const data = JSON.parse(String(init.body))
       expect(data.filename).toBe('中文 原版.MP3')
       expect(data.hash).toBe(await fileHash(music))
@@ -1319,8 +1330,8 @@ test('sync uses current index, excludes local-only fields and continues after mi
   })
   let commits = 0
   fetchHandler = async (url, init) => {
-    if (new URL(url).pathname.endsWith('/folders') && init.method === 'POST') return json({ id: 1, name: 'music' })
-    if (new URL(url).pathname.endsWith('/uploads')) {
+    if (new URL(url).pathname.endsWith('/folder') && init.method === 'POST') return json({ id: 1, name: 'music' })
+    if (new URL(url).pathname === '/api/upload') {
       const data = JSON.parse(String(init.body))
       expect(data).toMatchObject({ filename: 'song.mp3', name: 'song', title: 'Title', artist: 'Artist' })
       expect(data).not.toHaveProperty('scanError')
@@ -1332,8 +1343,8 @@ test('sync uses current index, excludes local-only fields and continues after mi
       commits++
       return json({ ok: true })
     }
-    if (new URL(url).pathname.endsWith('/folders')) return json([{ id: 1, name: 'music' }])
-    if (new URL(url).pathname.endsWith('/audios')) return json([row])
+    if (new URL(url).pathname.endsWith('/folder/list')) return json([{ id: 1, name: 'music' }])
+    if (new URL(url).pathname.endsWith('/audio/list')) return json([row])
     return json({ ok: true })
   }
   await syncLocalFolder('1')
@@ -1348,8 +1359,8 @@ test('sync skips unchanged songs and sends only files requested by the server', 
   const writes: string[] = []
   let plans = 0
   fetchHandler = async (url, init) => {
-    if (new URL(url).pathname.endsWith('/folders') && init.method === 'POST') return json({ id: 1, name: 'music' })
-    if (new URL(url).pathname.endsWith('/uploads')) {
+    if (new URL(url).pathname.endsWith('/folder') && init.method === 'POST') return json({ id: 1, name: 'music' })
+    if (new URL(url).pathname === '/api/upload') {
       const body = JSON.parse(String(init.body))
       expect(body.hash).toBe(await fileHash(new TextEncoder().encode('music')))
       plans++
@@ -1361,14 +1372,14 @@ test('sync skips unchanged songs and sends only files requested by the server', 
       writes.push(url)
       return json({ ok: true })
     }
-    if (new URL(url).pathname.endsWith('/folders')) return json([{ id: 1, name: 'music' }])
-    if (new URL(url).pathname.endsWith('/audios')) return json([row])
+    if (new URL(url).pathname.endsWith('/folder/list')) return json([{ id: 1, name: 'music' }])
+    if (new URL(url).pathname.endsWith('/audio/list')) return json([row])
     throw new Error(`Unexpected request: ${url}`)
   }
   await syncLocalFolder('1')
   expect(writes).toEqual([
-    'http://localhost:8787/api/uploads/lyrics-update/lyrics?authToken=secret',
-    'http://localhost:8787/api/uploads/lyrics-update/commit?authToken=secret'
+    'http://localhost:8787/api/upload/lyrics-update/lyrics?authToken=secret',
+    'http://localhost:8787/api/upload/lyrics-update/commit?authToken=secret'
   ])
   expect(useNetworkAudioStore.getState().syncs['1']).toMatchObject({
     succeeded: 1,
@@ -1393,8 +1404,8 @@ test('sync reads indexed covers separately, hashes them and uploads only when re
   let plans = 0
   const writes: string[] = []
   fetchHandler = async (url, init) => {
-    if (new URL(url).pathname.endsWith('/folders') && init.method === 'POST') return json({ id: 1, name: '音乐' })
-    if (new URL(url).pathname.endsWith('/uploads')) {
+    if (new URL(url).pathname.endsWith('/folder') && init.method === 'POST') return json({ id: 1, name: '音乐' })
+    if (new URL(url).pathname === '/api/upload') {
       const data = JSON.parse(String(init.body))
       expect(data.coverMime).toBe('image/png')
       expect(data.hash).toBe(await fileHash(new TextEncoder().encode('music')))
@@ -1410,13 +1421,13 @@ test('sync reads indexed covers separately, hashes them and uploads only when re
       return json({ ok: true })
     }
     if (new URL(url).pathname.endsWith('/commit')) return json({ ok: true })
-    if (new URL(url).pathname.endsWith('/folders')) return json([{ id: 1, name: '音乐' }])
-    if (new URL(url).pathname.endsWith('/audios')) return json([row])
+    if (new URL(url).pathname.endsWith('/folder/list')) return json([{ id: 1, name: '音乐' }])
+    if (new URL(url).pathname.endsWith('/audio/list')) return json([row])
     throw new Error(`Unexpected request: ${url}`)
   }
   await syncLocalFolder('1')
   expect(coverRequests).toEqual([{ audioId: 1 }, { audioId: 2 }, { audioId: 3 }])
-  expect(writes).toEqual(['http://localhost:8787/api/uploads/cover-3/cover?authToken=secret'])
+  expect(writes).toEqual(['http://localhost:8787/api/upload/cover-3/cover?authToken=secret'])
   expect(useNetworkAudioStore.getState().syncs['1']).toMatchObject({ succeeded: 2, skipped: 1, failures: [] })
 })
 
@@ -1441,16 +1452,16 @@ for (const failure of ['missing', 'error'] as const) {
     }
     let uploads = 0
     fetchHandler = async (url, init) => {
-      if (new URL(url).pathname.endsWith('/folders') && init.method === 'POST') return json({ id: 1, name: '音乐' })
-      if (new URL(url).pathname.endsWith('/uploads')) {
+      if (new URL(url).pathname.endsWith('/folder') && init.method === 'POST') return json({ id: 1, name: '音乐' })
+      if (new URL(url).pathname === '/api/upload') {
         const data = JSON.parse(String(init.body))
         expect(data.coverMime).toBeNull()
         expect(data.hash).toMatch(/^[a-f0-9]{64}$/)
         uploads++
         return json({ id: null, unchanged: true, requiredFiles: [] })
       }
-      if (new URL(url).pathname.endsWith('/folders')) return json([{ id: 1, name: '音乐' }])
-      if (new URL(url).pathname.endsWith('/audios')) return json([row])
+      if (new URL(url).pathname.endsWith('/folder/list')) return json([{ id: 1, name: '音乐' }])
+      if (new URL(url).pathname.endsWith('/audio/list')) return json([row])
       throw new Error(`Unexpected request: ${url}`)
     }
     await syncLocalFolder('1')
@@ -1472,8 +1483,8 @@ test('API requests retain their connection snapshot while settings change', asyn
   useNetworkSettings.setState({ serverUrl: 'https://music.example', token: 'new-token' })
   await Promise.all([old, networkApi.listFolders()])
   expect(requests.map(({ url, token }) => ({ url, token }))).toEqual([
-    { url: 'http://localhost:8787/api/folders?authToken=secret', token: 'secret' },
-    { url: 'https://music.example/api/folders?authToken=new-token', token: 'new-token' }
+    { url: 'http://localhost:8787/api/folder/list?authToken=secret', token: 'secret' },
+    { url: 'https://music.example/api/folder/list?authToken=new-token', token: 'new-token' }
   ])
   expect(oldSignal.aborted).toBe(true)
   expect(requests[0].signal?.aborted).toBe(true)
@@ -1495,7 +1506,7 @@ test('API requests abort on caller cancellation and connection changes', async (
     const request = changeConnection
       ? networkApi.listFolders()
       : networkApi.getAudio(
-          'http://localhost:8787/api/audios/1/audio?hash=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+          'http://localhost:8787/api/audio/1?kind=audio&hash=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
           controller.signal
         )
     const result = request.catch(error => error)
@@ -1546,26 +1557,31 @@ test('media APIs preserve content hashes and return audio bytes, lyrics text and
     urls.push(url)
     expect(new Headers(init.headers).has('Authorization')).toBe(false)
     expect(new URL(url).searchParams.get('authToken')).toBe('secret')
-    return new Response(url.includes('/lyrics') ? '[00:01]歌词' : new Uint8Array([0, 128, 255]), {
-      headers: { 'Content-Type': url.includes('/cover') ? 'image/png' : 'application/octet-stream' }
+    const kind = new URL(url).searchParams.get('kind')
+    return new Response(kind === 'lyrics' ? '[00:01]歌词' : new Uint8Array([0, 128, 255]), {
+      headers: { 'Content-Type': kind === 'cover' ? 'image/png' : 'application/octet-stream' }
     })
   }
-  const base = 'http://localhost:8787/api/audios/1'
+  const base = 'http://localhost:8787/api/audio/1'
   expect(
     new Uint8Array(
-      await networkApi.getAudio(base + '/audio?hash=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa')
+      await networkApi.getAudio(
+        base + '?kind=audio&hash=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+      )
     )
   ).toEqual(new Uint8Array([0, 128, 255]))
   expect(
-    await networkApi.getLyrics(base + '/lyrics?hash=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa')
+    await networkApi.getLyrics(
+      base + '?kind=lyrics&hash=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+    )
   ).toBe('[00:01]歌词')
   const cover = await networkApi.getCover(
-    base + '/cover?hash=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+    base + '?kind=cover&hash=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
   )
   expect(cover.type).toBe('image/png')
   expect(new Uint8Array(await cover.arrayBuffer())).toEqual(new Uint8Array([0, 128, 255]))
   expect(urls).toEqual(
-    ['audio', 'lyrics', 'cover'].map(kind => base + '/' + kind + '?hash=' + 'a'.repeat(64) + '&authToken=secret')
+    ['audio', 'lyrics', 'cover'].map(kind => base + '?kind=' + kind + '&hash=' + 'a'.repeat(64) + '&authToken=secret')
   )
 })
 
@@ -1580,21 +1596,21 @@ test('media APIs encode the current token and replace stale URL credentials with
     expect(parsed.searchParams.getAll('authToken')).toEqual([token])
     expect(parsed.searchParams.get('hash')).toBe(contentHash)
     expect(url.split('?')).toHaveLength(2)
-    requests.push(parsed.pathname)
+    requests.push(`${parsed.pathname}?kind=${parsed.searchParams.get('kind')}`)
     return new Response('music')
   }
-  const base = 'http://localhost:8787/api/audios/1'
-  await networkApi.getAudio(`${base}/audio?${query}`)
-  await networkApi.getLyrics(`${base}/lyrics?${query}`)
-  await networkApi.getCover(`${base}/cover?${query}`)
-  expect(requests).toEqual(['audio', 'lyrics', 'cover'].map(kind => `/api/audios/1/${kind}`))
+  const base = 'http://localhost:8787/api/audio/1'
+  await networkApi.getAudio(`${base}?kind=audio&${query}`)
+  await networkApi.getLyrics(`${base}?kind=lyrics&${query}`)
+  await networkApi.getCover(`${base}?kind=cover&${query}`)
+  expect(requests).toEqual(['audio', 'lyrics', 'cover'].map(kind => `/api/audio/1?kind=${kind}`))
 })
 
 test('shared HTTP requests merge URL and explicit query parameters with the configured token', async () => {
   const { http } = await import('../src/api/http-client')
   fetchHandler = async url => {
     const parsed = new URL(url)
-    expect(parsed.pathname).toBe('/api/folders')
+    expect(parsed.pathname).toBe('/api/folder/list')
     expect(Object.fromEntries(parsed.searchParams)).toEqual({
       existing: 'value',
       name: '中文 歌单',
@@ -1602,7 +1618,7 @@ test('shared HTTP requests merge URL and explicit query parameters with the conf
     })
     return json([])
   }
-  await http.get('/folders?existing=value&name=old&authToken=stale', {
+  await http.get('/folder/list?existing=value&name=old&authToken=stale', {
     query: { name: '中文 歌单', authToken: 'override' }
   })
 })
@@ -1617,7 +1633,7 @@ test('media APIs reject stale server URLs without sending credentials', async ()
   for (const request of [networkApi.getAudio, networkApi.getLyrics, networkApi.getCover]) {
     await expect(
       request(
-        'http://localhost:8787/api/audios/1/audio?hash=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+        'http://localhost:8787/api/audio/1?kind=audio&hash=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
       )
     ).rejects.toThrow('服务端地址已变更')
   }
@@ -1628,7 +1644,7 @@ test('upload APIs send JSON metadata and unmodified binary bodies', async () => 
   const bytes = new Uint8Array([0, 128, 255])
   fetchHandler = async (url, init) => {
     if (init.method === 'PUT') {
-      expect(url).toBe('http://localhost:8787/api/uploads/upload/audio?authToken=secret')
+      expect(url).toBe('http://localhost:8787/api/upload/upload/audio?authToken=secret')
       expect(init.body).toBeInstanceOf(Blob)
       expect(new Uint8Array(await (init.body as Blob).arrayBuffer())).toEqual(bytes)
       expect(new Headers(init.headers).has('Content-Type')).toBe(false)
@@ -1648,7 +1664,7 @@ test('sync stops on authentication or service-unavailable errors', async () => {
     useLocalAudioStore.setState({ '1': { audios: [local, { ...local, id: 2 }] } })
     let uploads = 0
     fetchHandler = async url => {
-      if (new URL(url).pathname.endsWith('/folders')) return json({ id: 1, name: 'music' })
+      if (new URL(url).pathname.endsWith('/folder')) return json({ id: 1, name: 'music' })
       uploads++
       return new Response('停止同步', { status })
     }
@@ -1682,8 +1698,8 @@ test('lyrics changes reuse memory audio and refresh lyrics', async () => {
   }
   await playAndSave(next)
   expect(requests).toHaveLength(1)
-  expect(requests.some(url => url.includes('/audio?hash='))).toBe(false)
-  expect(requests.some(url => url.includes('/lyrics?hash='))).toBe(true)
+  expect(requests.some(url => url.includes('?kind=audio&hash='))).toBe(false)
+  expect(requests.some(url => url.includes('?kind=lyrics&hash='))).toBe(true)
   expect(useAudioStore.getState().currentLrc).toBe('new lyrics')
 })
 test('metadata-only changes reuse disk audio and lyrics after memory is cleared', async () => {
@@ -1707,7 +1723,7 @@ test('visible rows reuse a cover request until its hash or connection changes', 
     calls.push(url)
     return new Response(new Uint8Array([1, 2, 3]), { headers: { 'Content-Type': 'image/png' } })
   }
-  const base = 'http://localhost:8787/api/audios/910/cover?hash='
+  const base = 'http://localhost:8787/api/audio/910?kind=cover&hash='
   const audio = { id: 910, folderName: '我的音乐', filename: 'song.mp3' }
   const first = base + 'a'.repeat(64)
   await Promise.all([getNetworkCover(audio, first), getNetworkCover(audio, first)])

@@ -13,4 +13,7 @@ export const zValidator = <T extends ZodType, Target extends keyof ValidationTar
     }
   })
 
-export const paramId = zValidator('param', z.object({ id: z.coerce.number().int().positive() }))
+export const idDto = z.object({ id: z.coerce.number().int().positive() })
+export const stringIdDto = z.object({ id: z.string() })
+export const zParamId = zValidator('param', idDto)
+export const zParamStringId = zValidator('param', stringIdDto)

@@ -1,26 +1,24 @@
 import { Hono } from 'hono'
-import { z } from 'zod'
 import { HTTPException } from 'hono/http-exception'
 import { and, asc, eq, exists, gte, isNotNull, sql } from 'drizzle-orm'
 import { alias } from 'drizzle-orm/sqlite-core'
 import type { AppEnv } from '@/db'
-import { audioGarbage, audios, audioUploads, folders, songNameSql } from '@/db/schema'
-import { paramId, zValidator } from './base.validator'
-import {
-  uploadMetadata,
-  fileName,
-  songName,
-  checksumHex,
-  uploadLimits,
-  uploadSessionTtlMs,
-  type AudioMetadata,
-  type FileKind
-} from './metadata'
+import { audioGarbageTable, audioTable, audioUploadTable, folderTable, songNameSql } from '@/db/schema'
+import { zValidator, zParamId, zParamStringId } from './base.validator'
+import { songName, checksumHex, fileKinds, uploadLimits, uploadSessionTtlMs, type FileKind } from './metadata'
 import { hasFile, objectPrefix, objectKey, objectKeys, objectKeySql } from './object-keys'
 import { cleanupAudioGarbage, queueAudioCleanupRetry } from './cleanup'
+import {
+  type AudioMetadata,
+  createFolderDto,
+  createUploadDto,
+  updateUploadDto,
+  audioListDto,
+  audioQueryDto
+} from './dto'
 
-type StoredAudio = typeof audios.$inferSelect
-const excludedAudio = alias(audios, 'excluded')
+type StoredAudio = typeof audioTable.$inferSelect
+const excludedAudio = alias(audioTable, 'excluded')
 const parseMetadata = (value: string) => JSON.parse(value) as AudioMetadata
 
 async function readUpload(body: ReadableStream<Uint8Array>, length: number) {
@@ -59,19 +57,19 @@ function publicAudio(row: StoredAudio) {
 
 export const api = new Hono<AppEnv>()
 
-api.get('/folders', async c => c.json(await c.get('db').select().from(folders).orderBy(asc(folders.id))))
-api.post('/folders', zValidator('json', z.object({ name: fileName })), async c => {
+api.get('/folder/list', async c => c.json(await c.get('db').select().from(folderTable).orderBy(asc(folderTable.id))))
+api.post('/folder', zValidator('json', createFolderDto), async c => {
   const { name } = c.req.valid('json')
   const db = c.get('db')
-  await db.insert(folders).values({ name }).onConflictDoNothing()
-  return c.json(await db.select().from(folders).where(eq(folders.name, name)).get())
+  await db.insert(folderTable).values({ name }).onConflictDoNothing()
+  return c.json(await db.select().from(folderTable).where(eq(folderTable.name, name)).get())
 })
-api.delete('/folders/:id', paramId, async c => {
+api.delete('/folder/:id', zParamId, async c => {
   const { id } = c.req.valid('param')
   const db = c.get('db')
-  const queueKeys = (table: typeof audios | typeof audioUploads, kind: FileKind) =>
+  const queueKeys = (table: typeof audioTable | typeof audioUploadTable, kind: FileKind) =>
     db
-      .insert(audioGarbage)
+      .insert(audioGarbageTable)
       .select(
         db
           .select({
@@ -82,12 +80,12 @@ api.delete('/folders/:id', paramId, async c => {
       )
       .onConflictDoNothing()
   await db.batch([
-    queueKeys(audios, 'audio'),
-    ...(['lyrics', 'cover'] as const).map(kind => queueKeys(audios, kind)),
-    ...(['audio', 'lyrics', 'cover'] as const).map(kind => queueKeys(audioUploads, kind)),
-    db.delete(audioUploads).where(eq(audioUploads.folderId, id)),
-    db.delete(audios).where(eq(audios.folderId, id)),
-    db.delete(folders).where(eq(folders.id, id))
+    queueKeys(audioTable, 'audio'),
+    ...(['lyrics', 'cover'] as const).map(kind => queueKeys(audioTable, kind)),
+    ...(['audio', 'lyrics', 'cover'] as const).map(kind => queueKeys(audioUploadTable, kind)),
+    db.delete(audioUploadTable).where(eq(audioUploadTable.folderId, id)),
+    db.delete(audioTable).where(eq(audioTable.folderId, id)),
+    db.delete(folderTable).where(eq(folderTable.id, id))
   ])
   c.executionCtx.waitUntil(
     cleanupAudioGarbage(db, c.env.R2).catch(() => {
@@ -96,56 +94,44 @@ api.delete('/folders/:id', paramId, async c => {
   )
   return c.json({ ok: true })
 })
-api.get('/folders/:id/audios', paramId, async c => {
-  const { id } = c.req.valid('param')
+
+api.post('/upload', zValidator('json', createUploadDto), async c => {
+  const { folderId, hash, lyricsHash, ...metadata } = c.req.valid('json')
   const db = c.get('db')
-  if (!(await db.select({ id: folders.id }).from(folders).where(eq(folders.id, id)).get()))
-    throw new HTTPException(404, { message: '文件夹不存在' })
-  const rows = await db
-    .select()
-    .from(audios)
-    .where(eq(audios.folderId, id))
-    .orderBy(sql`${audios.filename} collate nocase`, asc(audios.id))
-  return c.json(rows.map(publicAudio))
-})
-api.post('/folders/:id/uploads', paramId, zValidator('json', uploadMetadata), async c => {
-  const { id: folderId } = c.req.valid('param')
-  const db = c.get('db')
-  const folder = await db.select().from(folders).where(eq(folders.id, folderId)).get()
+  const folder = await db.select().from(folderTable).where(eq(folderTable.id, folderId)).get()
   if (!folder) throw new HTTPException(404, { message: '文件夹不存在' })
   const expired = and(
-    eq(audioUploads.folderId, folderId),
-    eq(audioUploads.committed, 0),
-    sql`${audioUploads.createdAt} < ${Date.now() - uploadSessionTtlMs}`
+    eq(audioUploadTable.folderId, folderId),
+    eq(audioUploadTable.committed, 0),
+    sql`${audioUploadTable.createdAt} < ${Date.now() - uploadSessionTtlMs}`
   )
   const queueExpired = (kind: FileKind) =>
     db
-      .insert(audioGarbage)
+      .insert(audioGarbageTable)
       .select(
         db
-          .select({ key: sql<string>`${objectKeySql(audioUploads, kind)}`.as('key') })
-          .from(audioUploads)
-          .where(and(expired, isNotNull(objectKeySql(audioUploads, kind))))
+          .select({ key: sql<string>`${objectKeySql(audioUploadTable, kind)}`.as('key') })
+          .from(audioUploadTable)
+          .where(and(expired, isNotNull(objectKeySql(audioUploadTable, kind))))
       )
       .onConflictDoNothing()
   await db.batch([
     queueExpired('audio'),
     queueExpired('lyrics'),
     queueExpired('cover'),
-    db.delete(audioUploads).where(expired)
+    db.delete(audioUploadTable).where(expired)
   ])
   const pendingUpload = await db
     .select()
-    .from(audioUploads)
+    .from(audioUploadTable)
     .where(
       and(
-        eq(audioUploads.folderId, folderId),
-        eq(songNameSql(audioUploads.filename), songName(c.req.valid('json').filename)),
-        eq(audioUploads.committed, 0)
+        eq(audioUploadTable.folderId, folderId),
+        eq(songNameSql(audioUploadTable.filename), songName(metadata.filename)),
+        eq(audioUploadTable.committed, 0)
       )
     )
     .get()
-  const { hash, lyricsHash, ...metadata } = c.req.valid('json')
   const serialized = JSON.stringify(metadata)
   if (pendingUpload) {
     const uploaded = JSON.parse(pendingUpload.uploadedFiles) as string[]
@@ -163,12 +149,12 @@ api.post('/folders/:id/uploads', paramId, zValidator('json', uploadMetadata), as
   const id = crypto.randomUUID()
   const existing = await db
     .select()
-    .from(audios)
-    .where(and(eq(audios.folderId, folderId), eq(songNameSql(audios.filename), songName(metadata.filename))))
+    .from(audioTable)
+    .where(and(eq(audioTable.folderId, folderId), eq(songNameSql(audioTable.filename), songName(metadata.filename))))
     .get()
   const requiredFiles: FileKind[] = []
   const keyPrefix = existing?.keyPrefix ?? objectPrefix(folder.name, metadata.filename)
-  for (const kind of ['audio', 'lyrics', 'cover'] as const) {
+  for (const kind of fileKinds) {
     if (!hasFile(metadata, kind)) continue
     const unchanged = kind === 'lyrics' ? lyricsHash === existing?.lyricsHash : hash === existing?.hash
     if (
@@ -185,7 +171,7 @@ api.post('/folders/:id/uploads', paramId, zValidator('json', uploadMetadata), as
     return c.json({ id: null, unchanged: true, requiredFiles })
   }
   await db
-    .insert(audioUploads)
+    .insert(audioUploadTable)
     .values({
       id,
       folderId,
@@ -198,17 +184,17 @@ api.post('/folders/:id/uploads', paramId, zValidator('json', uploadMetadata), as
       createdAt: Date.now()
     })
     .catch(async error => {
-      if (!(await db.select({ id: folders.id }).from(folders).where(eq(folders.id, folderId)).get()))
+      if (!(await db.select({ id: folderTable.id }).from(folderTable).where(eq(folderTable.id, folderId)).get()))
         throw new HTTPException(404, { message: '文件夹不存在' })
       if (
         await db
           .select()
-          .from(audioUploads)
+          .from(audioUploadTable)
           .where(
             and(
-              eq(audioUploads.folderId, folderId),
-              eq(songNameSql(audioUploads.filename), songName(metadata.filename)),
-              eq(audioUploads.committed, 0)
+              eq(audioUploadTable.folderId, folderId),
+              eq(songNameSql(audioUploadTable.filename), songName(metadata.filename)),
+              eq(audioUploadTable.committed, 0)
             )
           )
           .get()
@@ -218,20 +204,19 @@ api.post('/folders/:id/uploads', paramId, zValidator('json', uploadMetadata), as
     })
   return c.json({ id, unchanged: false, requiredFiles }, 201)
 })
-
-api.put('/uploads/:id/:kind', async c => {
-  const id = c.req.param('id')
+api.put('/upload/:id/:kind', zValidator('param', updateUploadDto), async c => {
+  const { id, kind } = c.req.valid('param')
   const db = c.get('db')
-  const kind = c.req.param('kind') as FileKind
-  if (!Object.hasOwn(uploadLimits, kind)) throw new HTTPException(404, { message: '文件类型不存在' })
-  const upload = await db.select().from(audioUploads).where(eq(audioUploads.id, id)).get()
+  if (!kind) throw new HTTPException(404, { message: '文件类型不存在' })
+  const upload = await db.select().from(audioUploadTable).where(eq(audioUploadTable.id, id)).get()
   if (!upload || upload.createdAt < Date.now() - uploadSessionTtlMs)
     throw new HTTPException(404, { message: '上传不存在或已过期' })
   if (upload.committed) throw new HTTPException(409, { message: '上传已经提交' })
   const metadata = parseMetadata(upload.metadata)
   if (!hasFile(metadata, kind)) throw new HTTPException(400, { message: '该歌曲未声明此文件' })
   const length = Number(c.req.header('Content-Length'))
-  if (!c.req.raw.body || !Number.isSafeInteger(length) || length <= 0)
+  const body = c.req.raw.body
+  if (!body || !Number.isSafeInteger(length) || length <= 0)
     throw new HTTPException(400, { message: '需要非空文件及 Content-Length' })
   if (length > uploadLimits[kind]) throw new HTTPException(413, { message: '文件超过大小限制' })
   if (kind === 'audio' && metadata.fileSize !== null && length !== metadata.fileSize)
@@ -241,25 +226,27 @@ api.put('/uploads/:id/:kind', async c => {
   if (!required.includes(kind)) throw new HTTPException(409, { message: '该文件内容未变化，无需上传' })
   const writing = 'writing_' + kind
   const claimed = await db
-    .update(audioUploads)
-    .set({ uploadedFiles: sql`json_insert(${audioUploads.uploadedFiles}, '$[#]', ${writing})` })
+    .update(audioUploadTable)
+    .set({ uploadedFiles: sql`json_insert(${audioUploadTable.uploadedFiles}, '$[#]', ${writing})` })
     .where(
       and(
-        eq(audioUploads.id, id),
-        eq(audioUploads.committed, 0),
-        sql`NOT EXISTS (SELECT 1 FROM json_each(${audioUploads.uploadedFiles}) WHERE value IN (${kind}, ${writing}))`
+        eq(audioUploadTable.id, id),
+        eq(audioUploadTable.committed, 0),
+        sql`NOT EXISTS (SELECT 1 FROM json_each(${audioUploadTable.uploadedFiles}) WHERE value IN (${kind}, ${writing}))`
       )
     )
-    .returning({ id: audioUploads.id })
+    .returning({ id: audioUploadTable.id })
     .get()
   if (!claimed) throw new HTTPException(409, { message: '文件已上传或正在上传' })
   await db
-    .update(audios)
+    .update(audioTable)
     .set({ updating: 1 })
-    .where(and(eq(audios.folderId, upload.folderId), eq(songNameSql(audios.filename), songName(upload.filename))))
+    .where(
+      and(eq(audioTable.folderId, upload.folderId), eq(songNameSql(audioTable.filename), songName(upload.filename)))
+    )
   // Fixed objects are overwritten only after marking the published song unavailable.
   const stored = await (async () => {
-    const bytes = await readUpload(c.req.raw.body!, length)
+    const bytes = await readUpload(body, length)
     const checksum = checksumHex(await crypto.subtle.digest('SHA-256', bytes))
     return c.env.R2.put(key, bytes, {
       sha256: kind === 'audio' ? upload.hash : kind === 'lyrics' ? upload.lyricsHash! : checksum,
@@ -274,17 +261,17 @@ api.put('/uploads/:id/:kind', async c => {
     const keys = objectKeys(upload)
     await db.batch([
       db
-        .insert(audioGarbage)
+        .insert(audioGarbageTable)
         .values(keys.map(key => ({ key })))
         .onConflictDoNothing(),
-      db.delete(audioUploads).where(eq(audioUploads.id, id))
+      db.delete(audioUploadTable).where(eq(audioUploadTable.id, id))
     ])
     if (error instanceof Error && /checksum|sha-?256/i.test(error.message))
       throw new HTTPException(400, { message: '文件 hash 校验失败，请重新同步' })
     throw error
   })
   if (!stored) throw new HTTPException(409, { message: '文件已上传，请重新同步该歌曲' })
-  const remaining = await db.select().from(audioUploads).where(eq(audioUploads.id, id)).get()
+  const remaining = await db.select().from(audioUploadTable).where(eq(audioUploadTable.id, id)).get()
   if (!remaining || (!remaining.committed && remaining.createdAt < Date.now() - uploadSessionTtlMs)) {
     // A DELETE may already have drained its queue before this late PUT completed.
     await c.env.R2.delete(key).catch(async () => {
@@ -294,15 +281,14 @@ api.put('/uploads/:id/:kind', async c => {
     throw new HTTPException(409, { message: '上传已过期，请重新同步' })
   }
   await db.run(
-    sql`UPDATE ${audioUploads} SET uploadedFiles = replace(uploadedFiles, ${JSON.stringify(writing)}, ${JSON.stringify(kind)}) WHERE id = ${id} AND committed = 0`
+    sql`UPDATE ${audioUploadTable} SET uploadedFiles = replace(uploadedFiles, ${JSON.stringify(writing)}, ${JSON.stringify(kind)}) WHERE id = ${id} AND committed = 0`
   )
   return c.json({ ok: true })
 })
-
-api.post('/uploads/:id/commit', async c => {
-  const id = c.req.param('id')
+api.post('/upload/:id/commit', zParamStringId, async c => {
+  const { id } = c.req.valid('param')
   const db = c.get('db')
-  const upload = await db.select().from(audioUploads).where(eq(audioUploads.id, id)).get()
+  const upload = await db.select().from(audioUploadTable).where(eq(audioUploadTable.id, id)).get()
   if (!upload) throw new HTTPException(404, { message: '上传不存在' })
   if (upload.committed) return c.json({ ok: true })
   if (upload.createdAt < Date.now() - uploadSessionTtlMs) throw new HTTPException(409, { message: '上传已过期' })
@@ -321,29 +307,29 @@ api.post('/uploads/:id/commit', async c => {
   if (checksums[0] !== upload.hash || (metadata.hasLyrics && checksums[1] !== upload.lyricsHash)) {
     await db.batch([
       db
-        .insert(audioGarbage)
+        .insert(audioGarbageTable)
         .values(keys.filter((key): key is string => !!key).map(key => ({ key })))
         .onConflictDoNothing(),
-      db.delete(audioUploads).where(eq(audioUploads.id, id))
+      db.delete(audioUploadTable).where(eq(audioUploadTable.id, id))
     ])
     throw new HTTPException(400, { message: '歌曲 hash 校验失败，请重新同步' })
   }
   const pending = db
-    .select({ id: audioUploads.id })
-    .from(audioUploads)
-    .where(and(eq(audioUploads.id, id), eq(audioUploads.committed, 0)))
+    .select({ id: audioUploadTable.id })
+    .from(audioUploadTable)
+    .where(and(eq(audioUploadTable.id, id), eq(audioUploadTable.committed, 0)))
   const queueOld = (kind: FileKind) =>
     db
-      .insert(audioGarbage)
+      .insert(audioGarbageTable)
       .select(
         db
-          .select({ key: sql<string>`${objectKeySql(audios, kind)}`.as('key') })
-          .from(audios)
+          .select({ key: sql<string>`${objectKeySql(audioTable, kind)}`.as('key') })
+          .from(audioTable)
           .where(
             and(
-              eq(audios.folderId, upload.folderId),
-              eq(songNameSql(audios.filename), songName(upload.filename)),
-              isNotNull(objectKeySql(audios, kind)),
+              eq(audioTable.folderId, upload.folderId),
+              eq(songNameSql(audioTable.filename), songName(upload.filename)),
+              isNotNull(objectKeySql(audioTable, kind)),
               exists(pending)
             )
           )
@@ -357,23 +343,25 @@ api.post('/uploads/:id/commit', async c => {
     queueOld('lyrics'),
     queueOld('cover'),
     db
-      .insert(audios)
+      .insert(audioTable)
       .select(
         db
           .select({
-            folderId: audioUploads.folderId,
-            filename: audioUploads.filename,
-            metadata: audioUploads.metadata,
+            folderId: audioUploadTable.folderId,
+            filename: audioUploadTable.filename,
+            metadata: audioUploadTable.metadata,
             updating: sql<number>`0`.as('updating'),
-            keyPrefix: audioUploads.keyPrefix,
-            hash: audioUploads.hash,
-            lyricsHash: audioUploads.lyricsHash
+            keyPrefix: audioUploadTable.keyPrefix,
+            hash: audioUploadTable.hash,
+            lyricsHash: audioUploadTable.lyricsHash
           })
-          .from(audioUploads)
-          .where(and(eq(audioUploads.id, id), eq(audioUploads.committed, 0), gte(audioUploads.createdAt, cutoff)))
+          .from(audioUploadTable)
+          .where(
+            and(eq(audioUploadTable.id, id), eq(audioUploadTable.committed, 0), gte(audioUploadTable.createdAt, cutoff))
+          )
       )
       .onConflictDoUpdate({
-        target: [audios.folderId, songNameSql(audios.filename)],
+        target: [audioTable.folderId, songNameSql(audioTable.filename)],
         set: {
           metadata: excludedAudio.metadata,
           filename: excludedAudio.filename,
@@ -384,24 +372,35 @@ api.post('/uploads/:id/commit', async c => {
         }
       }),
     db
-      .update(audioUploads)
+      .update(audioUploadTable)
       .set({ committed: 1 })
-      .where(and(eq(audioUploads.id, id), gte(audioUploads.createdAt, cutoff)))
+      .where(and(eq(audioUploadTable.id, id), gte(audioUploadTable.createdAt, cutoff)))
   ])
   if (!results[4].meta.changes) throw new HTTPException(409, { message: '上传已过期，请重新同步' })
   return c.json({ ok: true })
 })
 
-api.get('/audios/:id/:kind', paramId, async c => {
+api.get('/audio/list', zValidator('query', audioListDto), async c => {
+  const { folderId } = c.req.valid('query')
+  const db = c.get('db')
+  if (!(await db.select({ id: folderTable.id }).from(folderTable).where(eq(folderTable.id, folderId)).get()))
+    throw new HTTPException(404, { message: '文件夹不存在' })
+  const rows = await db
+    .select()
+    .from(audioTable)
+    .where(eq(audioTable.folderId, folderId))
+    .orderBy(sql`${audioTable.filename} collate nocase`, asc(audioTable.id))
+  return c.json(rows.map(publicAudio))
+})
+api.get('/audio/:id', zParamId, zValidator('query', audioQueryDto), async c => {
   const { id } = c.req.valid('param')
-  const kind = c.req.param('kind') as FileKind
-  if (!Object.hasOwn(uploadLimits, kind)) throw new HTTPException(404, { message: '文件类型不存在' })
-  const row = await c.get('db').select().from(audios).where(eq(audios.id, id)).get()
+  const { kind, hash } = c.req.valid('query')
+  if (!kind) throw new HTTPException(404, { message: '文件类型不存在' })
+  const row = await c.get('db').select().from(audioTable).where(eq(audioTable.id, id)).get()
   if (!row) throw new HTTPException(404, { message: '歌曲不存在' })
   if (row.updating) throw new HTTPException(409, { message: '歌曲更新尚未完成，请重新同步' })
   const expectedHash = kind === 'lyrics' ? row.lyricsHash : row.hash
-  if (c.req.query('hash') && c.req.query('hash') !== expectedHash)
-    throw new HTTPException(409, { message: '歌曲已更新，请刷新网络列表' })
+  if (hash && hash !== expectedHash) throw new HTTPException(409, { message: '歌曲已更新，请刷新网络列表' })
   if (!hasFile(parseMetadata(row.metadata), kind)) throw new HTTPException(404, { message: '文件不存在' })
   const key = objectKey(row.keyPrefix, kind)
   const object = await c.env.R2.get(key)

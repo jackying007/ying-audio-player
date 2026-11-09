@@ -20,8 +20,9 @@ async function request(path: string, method = 'GET', body?: object | string) {
   if (!response.ok) throw new Error(`${path}: ${response.status} ${await response.text()}`)
   return response.json() as Promise<Record<string, any>>
 }
-const folder = await request('/folders', 'POST', { name: 'Worker smoke test' })
+const folder = await request('/folder', 'POST', { name: 'Worker smoke test' })
 const metadata = {
+  folderId: folder.id,
   filename: 'smoke.mp3',
   name: 'Smoke',
   title: 'Metadata roundtrip',
@@ -34,25 +35,25 @@ const metadata = {
 const hash = (value: string) => new Bun.CryptoHasher('sha256').update(value).digest('hex')
 const songHash = hash('music')
 const lyricsHash = hash('[00:01]lyrics')
-const upload = await request(`/folders/${folder.id}/uploads`, 'POST', { ...metadata, hash: songHash, lyricsHash })
-await request(`/uploads/${upload.id}/audio`, 'PUT', 'music')
-await request(`/uploads/${upload.id}/lyrics`, 'PUT', '[00:01]lyrics')
-await request(`/uploads/${upload.id}/cover`, 'PUT', 'image')
-const duplicate = await fetch(authenticatedUrl(`/uploads/${upload.id}/audio`), { method: 'PUT', body: 'music' })
+const upload = await request('/upload', 'POST', { ...metadata, hash: songHash, lyricsHash })
+await request(`/upload/${upload.id}/audio`, 'PUT', 'music')
+await request(`/upload/${upload.id}/lyrics`, 'PUT', '[00:01]lyrics')
+await request(`/upload/${upload.id}/cover`, 'PUT', 'image')
+const duplicate = await fetch(authenticatedUrl(`/upload/${upload.id}/audio`), { method: 'PUT', body: 'music' })
 if (duplicate.status !== 409) throw new Error('Completed file writes must reject duplicate PUTs')
-await request(`/uploads/${upload.id}/commit`, 'POST')
-const same = await request(`/folders/${folder.id}/uploads`, 'POST', { ...metadata, hash: songHash, lyricsHash })
+await request(`/upload/${upload.id}/commit`, 'POST')
+const same = await request('/upload', 'POST', { ...metadata, hash: songHash, lyricsHash })
 if (!same.unchanged || same.requiredFiles.length) throw new Error('Unchanged song was not skipped')
-const lyricsUpdate = await request(`/folders/${folder.id}/uploads`, 'POST', {
+const lyricsUpdate = await request('/upload', 'POST', {
   ...metadata,
   hash: songHash,
   lyricsHash: hash('updated lyrics')
 })
 if (JSON.stringify(lyricsUpdate.requiredFiles) !== '["lyrics"]')
   throw new Error('Lyrics-only update must reuse audio and cover')
-await request(`/uploads/${lyricsUpdate.id}/lyrics`, 'PUT', 'updated lyrics')
-await request(`/uploads/${lyricsUpdate.id}/commit`, 'POST')
-const bad = await request(`/folders/${folder.id}/uploads`, 'POST', {
+await request(`/upload/${lyricsUpdate.id}/lyrics`, 'PUT', 'updated lyrics')
+await request(`/upload/${lyricsUpdate.id}/commit`, 'POST')
+const bad = await request('/upload', 'POST', {
   ...metadata,
   filename: 'invalid.mp3',
   hasLyrics: false,
@@ -60,15 +61,15 @@ const bad = await request(`/folders/${folder.id}/uploads`, 'POST', {
   hash: songHash,
   lyricsHash: null
 })
-const badChecksum = await fetch(authenticatedUrl(`/uploads/${bad.id}/audio`), { method: 'PUT', body: 'other' })
+const badChecksum = await fetch(authenticatedUrl(`/upload/${bad.id}/audio`), { method: 'PUT', body: 'other' })
 if (badChecksum.status !== 400)
   throw new Error(`Expected checksum rejection, got ${badChecksum.status}: ${await badChecksum.text()}`)
-const rows = await request(`/folders/${folder.id}/audios`)
-const response = await fetch(authenticatedUrl(`/audios/${rows[0].id}/audio`))
+const rows = await request(`/audio/list?folderId=${folder.id}`)
+const response = await fetch(authenticatedUrl(`/audio/${rows[0].id}?kind=audio`))
 if ((await response.text()) !== 'music' || rows[0].title !== metadata.title)
   throw new Error('Audio or metadata did not roundtrip')
-await request(`/uploads/${upload.id}/commit`, 'POST')
-const next = await request(`/folders/${folder.id}/uploads`, 'POST', {
+await request(`/upload/${upload.id}/commit`, 'POST')
+const next = await request('/upload', 'POST', {
   ...metadata,
   hasLyrics: false,
   coverMime: null,
@@ -76,8 +77,8 @@ const next = await request(`/folders/${folder.id}/uploads`, 'POST', {
   lyricsHash: null
 })
 if (next.requiredFiles.length) throw new Error('Removing optional files must reuse audio')
-await request(`/uploads/${next.id}/commit`, 'POST')
-const updated = await request(`/folders/${folder.id}/audios`)
+await request(`/upload/${next.id}/commit`, 'POST')
+const updated = await request(`/audio/list?folderId=${folder.id}`)
 if (updated.length !== 1 || updated[0].hasLyrics || updated[0].coverMime)
   throw new Error('Replacement did not clear optional files')
 const cleanup = await fetch(`${origin}/__scheduled`)

@@ -1,7 +1,7 @@
 import { sql, type SQLWrapper } from 'drizzle-orm'
-import { songName, type AudioMetadata, type FileKind } from './metadata'
+import type { AudioMetadata } from './dto'
+import { fileKinds, songName, type FileKind } from './metadata'
 
-export const fileKinds = ['audio', 'lyrics', 'cover'] as const
 export const objectPrefix = (folder: string, filename: string) => folder + '/' + songName(filename)
 export const objectKey = (prefix: string, kind: FileKind) => prefix + '/' + kind
 export const hasFile = (metadata: AudioMetadata, kind: FileKind) =>
