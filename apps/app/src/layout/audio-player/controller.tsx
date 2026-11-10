@@ -88,7 +88,8 @@ export function Controller() {
     <div
       className={cn(
         'fixed -bottom-22 left-0 w-full h-20 z-20 bg-white transition-all',
-        showMode !== ShowMode.Hide && 'bottom-0',
+        showMode !== ShowMode.Hide &&
+          'bottom-0 shadow-[0_-5px_12px_-2px_var(--muted)] before:absolute before:inset-x-0 before:bottom-full before:h-5',
         isIOS &&
           'h-[calc(5rem+env(safe-area-inset-bottom))] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]',
         isIOS && showMode === ShowMode.Hide && '-bottom-[calc(5.5rem+env(safe-area-inset-bottom))]'
