@@ -46,7 +46,12 @@ objc2-media-player = { version = "0.3", default-features = false, features = ["s
 block2 = "0.6"
 
 [target.'cfg(target_os = "windows")'.dependencies]
-windows = { version = "0.62", features = ["Foundation", "Media", "Media_Core", "Media_Devices", "Media_Playback", "Storage_Streams", "Win32_System_WinRT", "Win32_Media_Audio", "Win32_Media_KernelStreaming", "Win32_System_Com_StructuredStorage", "Win32_System_Variant"] }
+windows = { version = "0.62", features = [
+    "Foundation", "Media", "Media_Core", "Media_Devices", "Media_Playback", "Storage_Streams",
+    "Win32_Globalization", "Win32_Media_Audio", "Win32_Media_KernelStreaming", "Win32_Storage_EnhancedStorage",
+    "Win32_Storage_FileSystem", "Win32_System_Com_StructuredStorage", "Win32_System_Variant",
+    "Win32_System_WinRT", "Win32_UI_Shell_PropertiesSystem",
+] }
 
 [dependencies.fastrand]
 version = "2"

@@ -5,10 +5,16 @@ mod local_audio;
 mod native_playback;
 mod network_cache;
 mod storage;
+#[cfg(target_os = "windows")]
+mod windows_identity;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let context = tauri::generate_context!();
+    #[cfg(target_os = "windows")]
+    if let Err(error) = windows_identity::register(context.config()) {
+        eprintln!("Failed to register Windows app identity: {error}");
+    }
     #[cfg(target_os = "macos")]
     let context = {
         let mut context = context;

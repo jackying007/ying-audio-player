@@ -261,6 +261,9 @@ impl Player {
 
     pub(super) fn metadata(&self, metadata: Metadata) -> Result<()> {
         let updater = native(self.controls.DisplayUpdater())?;
+        if let Ok(id) = crate::windows_identity::process_app_id() {
+            let _ = updater.SetAppMediaId(&id);
+        }
         native(updater.SetType(MediaPlaybackType::Music))?;
         let music = native(updater.MusicProperties())?;
         native(music.SetTitle(&HSTRING::from(metadata.title)))?;
