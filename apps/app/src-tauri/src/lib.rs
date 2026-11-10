@@ -45,14 +45,24 @@ pub fn run() {
             desktop_tray::init(app);
             Ok(())
         });
-    builder
+    let app = builder
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(local_audio::init())
         .plugin(network_cache::init())
-        .run(context)
+        .build(context)
         .expect("error while running tauri application");
+    app.run(|_app, _event| {
+        #[cfg(target_os = "macos")]
+        if let tauri::RunEvent::Reopen {
+            has_visible_windows: false,
+            ..
+        } = _event
+        {
+            desktop_tray::show_main_window(_app);
+        }
+    });
 }
 
 #[cfg(target_os = "macos")]

@@ -49,11 +49,13 @@ fn create_tray(app: &App) -> tauri::Result<()> {
     Ok(())
 }
 
-fn show_main_window(app: &AppHandle) {
+pub(crate) fn show_main_window(app: &AppHandle) {
     let Some(window) = app.get_webview_window(MAIN_WINDOW) else {
         return;
     };
     let result = (|| {
+        #[cfg(target_os = "macos")]
+        set_activation_policy(app, tauri::ActivationPolicy::Regular);
         window.show()?;
         if window.is_minimized()? {
             window.unminimize()?;
@@ -74,9 +76,21 @@ pub(crate) fn on_window_event(window: &Window, event: &WindowEvent) {
         let app = window.app_handle();
         close_main_window(
             app.tray_by_id(TRAY_ID).is_some(),
-            || window.hide(),
+            || {
+                window.hide()?;
+                #[cfg(target_os = "macos")]
+                set_activation_policy(app, tauri::ActivationPolicy::Accessory);
+                Ok(())
+            },
             || app.exit(0),
         );
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn set_activation_policy(app: &AppHandle, policy: tauri::ActivationPolicy) {
+    if let Err(error) = app.set_activation_policy(policy) {
+        eprintln!("Failed to update the macOS activation policy: {error}");
     }
 }
 
