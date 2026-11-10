@@ -54,6 +54,8 @@ Tauri 自动启动 Vite 并打开窗口。Vite 固定使用 `http://localhost:14
 
 **使用流程**：在「App 设置」填写服务端根地址（不带 `/api`）和与 `API_TOKEN` 相同的密钥 → 导入本地 MP3 文件夹 → 点击列表「同步」 → 展开左侧「网络」，选择文件夹并双击歌曲。网络列表与本地共用布局，展示名称、封面、歌手、时长和大小。
 
+本地和网络歌曲列表统一双击播放。iOS 和 Android 连续轻点同一首歌两次，桌面端双击歌曲。
+
 iOS 和 Android 在主界面单指右滑展开侧边栏、左滑关闭，松手后切换。窄屏可从抽屉内或遮罩上左滑关闭，宽屏展开或收起常驻侧边栏。全屏歌词暂停侧栏手势；输入、滑块、横向滚动区域和其他弹层优先处理各自的交互。
 
 ### Windows / macOS 原生播放
@@ -73,7 +75,7 @@ iOS 和 Android 在主界面单指右滑展开侧边栏、左滑关闭，松手�
 - 真机开发通过 USB 调试连接，执行 `adb reverse tcp:1420 tcp:1420`、`adb reverse tcp:1421 tcp:1421`；访问本机 Worker 时再执行 `adb reverse tcp:8787 tcp:8787`，App 内填写 `http://localhost:8787`。`android:dev` 固定使用 `127.0.0.1`，保持开发页面处于安全上下文，并匹配服务端 CORS；Vite 由 Tauri 启动，不另起一个前端开发服务。发布版继续支持用户填写 HTTP/HTTPS 根地址。
 - Android 原生目录访问位于 `src-tauri/plugins/android-files`。通过系统目录选择器持久授权，只扫描所选目录直接子文件；Android 系统限制选择存储根目录、Download 根目录等位置时，应选择其下的音乐文件夹。取消选择不改索引；撤销授权后重新导入原文件夹恢复访问，授权失效的刷新保留旧索引。
 - URI 是不透明标识；文件夹名和原始 `filename` 来自文档提供者。播放和同步都按歌曲 ID 查询索引，禁止解析 URI 拼接文件名。同步通过 `localAudio.readAudio/readLyrics` 读取，播放将临时文件交给原生播放器。读取结束或播放器释放文件后清理临时副本，不永久复制导入目录。
-- Android 包名统一为 `ying.audio.player`。SQLite 与 `network-cache` 直接位于 `Android/data/ying.audio.player/`；原生层通过 `getExternalFilesDir(null)` 取得系统创建目录的父目录，不硬编码存储盘路径，不申请全盘权限。外部存储不可写时报错，不回退内部目录；卸载仍清除这些数据。更换包名视为新应用，旧包私有数据、设置及目录授权不自动迁移，需重新配置和导入。桌面继续使用可执行文件同目录。音乐列表在 Android 单击播放，桌面双击；布局沿用响应式界面。
+- Android 包名统一为 `ying.audio.player`。SQLite 与 `network-cache` 直接位于 `Android/data/ying.audio.player/`；原生层通过 `getExternalFilesDir(null)` 取得系统创建目录的父目录，不硬编码存储盘路径，不申请全盘权限。外部存储不可写时报错，不回退内部目录；卸载仍清除这些数据。更换包名视为新应用，旧包私有数据、设置及目录授权不自动迁移，需重新配置和导入。桌面继续使用可执行文件同目录。
 - 移动端原生播放直接读取和写入磁盘缓存。保留的移动缓存 IPC 走 JSON，二进制数据分为最多 64 KiB 的有序数据块，收齐并校验总长度后发布完成标记。
 - 使用 Media3 原生播放服务，支持切后台或锁屏后连续播放，以及通知栏、锁屏和耳机的播放控制。从最近任务划掉 App 时停止播放并清理通知。返回键先关闭弹层与侧栏，再收起全屏歌词，再返回历史页面，无历史时退出 App。
 - 原生代码测试：完成一次 Tauri Android 构建生成依赖配置后，在 `src-tauri/gen/android` 执行 `./gradlew.bat :tauri-plugin-android-files:testDebugUnitTest`；这些 JVM 单元测试不启动 App 或模拟器。改动 Kotlin、Rust、IPC 后同步检查两端类型和 capabilities。
@@ -83,7 +85,7 @@ iOS 和 Android 在主界面单指右滑展开侧边栏、左滑关闭，松手�
 - 支持 iOS 16.4 及以上的 iPhone、iPad。使用 macOS 完整 Xcode（含 iOS SDK 和模拟器）、XcodeGen、CocoaPods、libimobiledevice，并安装 `aarch64-apple-ios` 与 `aarch64-apple-ios-sim` Rust targets（Intel Mac 的模拟器使用 `x86_64-apple-ios`）。在 `apps/app` 运行 `bun run ios:init` 初始化缺失的工程，`bun run ios:dev` 开发，`bun run ios:build` 打包。真机签名在本地配置 Xcode 开发团队或设置 `APPLE_DEVELOPMENT_TEAM`。
 - 模拟器可用 `http://localhost:8787` 访问本机 Worker。真机 Vite 热更新使用 `bun run ios:dev --host`（Vite 读取 Tauri 提供的 `TAURI_DEV_HOST`）；联调默认 CORS 的 Worker 时使用模拟器 localhost 或安装已构建的 App。真机访问局域网 Worker 时使 Worker 监听局域网地址，App 填写 Mac 的局域网地址及端口，并允许 iOS 的局域网访问提示。内置 WebView 允许用户配置 HTTP 或 HTTPS；发布版 Tauri 来源已由 Worker 放行。
 - 通过系统「文件」选择音乐文件夹，仅扫描直接子文件。Swift 插件 `src-tauri/plugins/ios-files` 保存目录授权书签并协调读取，Rust 负责索引。授权失效后重新选择原文件夹恢复访问；刷新失败保留旧索引；移除导入记录释放授权书签并保留原文件。
-- SQLite、授权书签和 `network-cache` 位于应用沙盒的 `Library/Application Support/YingAudioPlayer`，缓存目录排除系统备份。歌曲单击播放，通过 AVPlayer 和后台音频会话连续播放，可在锁屏、控制中心和耳机上操作。强制退出 App 停止播放。锁屏期间加载未缓存歌曲若超过系统允许的后台准备时间，暂停并显示可重试错误。
+- SQLite、授权书签和 `network-cache` 位于应用沙盒的 `Library/Application Support/YingAudioPlayer`，缓存目录排除系统备份。通过 AVPlayer 和后台音频会话连续播放，可在锁屏、控制中心和耳机上操作。强制退出 App 停止播放。锁屏期间加载未缓存歌曲若超过系统允许的后台准备时间，暂停并显示可重试错误。
 - 书签和文件扫描逻辑可用 macOS 主机上的 Swift 测试验证。在 `apps/app` 执行 `ios_plugin=src-tauri/plugins/ios-files/ios; swiftc "$ios_plugin/Sources/FolderAccess.swift" "$ios_plugin/Tests/FolderAccessTests.swift" -o /tmp/ying-ios-folder-access-tests && /tmp/ying-ios-folder-access-tests`。系统选择器与实际安全作用域由 iOS 真机验证。
 
 ## 音乐与同步约定

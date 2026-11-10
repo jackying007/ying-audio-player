@@ -12,7 +12,7 @@ test.each([
   expect(detectPlatform(userAgent, touches)).toEqual({ isIOS, isAndroid, isMobile: isIOS || isAndroid })
 })
 
-test.each(['ios', 'android', 'desktop'])('song activation uses the platform gesture: %s', platform => {
+test.each(['ios', 'android', 'desktop'])('song activation only binds onDoubleClick: %s', platform => {
   const result = Bun.spawnSync([process.execPath, 'run', `${import.meta.dir}/fixtures/song-activation.ts`, platform])
   expect(result.stderr.toString()).toBe('')
   expect(result.exitCode).toBe(0)

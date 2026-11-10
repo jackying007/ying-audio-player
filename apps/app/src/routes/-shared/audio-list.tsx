@@ -2,7 +2,6 @@ import { AudioLines, LoaderCircle } from 'lucide-react'
 import { cn } from 'cn'
 import { AudioCover } from './audio-cover'
 import { useAudioStore, PlayState, type AudioInfo } from '@/store/audio-store'
-import { isMobile } from '@/lib/platform'
 
 function formatDuration(ms: number | null) {
   if (ms == null) return '—'
@@ -32,8 +31,7 @@ export function AudioList({ audios, onPlay }: { audios: AudioInfo[]; onPlay: (au
           <div
             key={audio.link}
             className="border-b hover:bg-muted/50 flex items-center justify-between p-3 pl-0"
-            onClick={isMobile ? () => void onPlay(audio) : undefined}
-            onDoubleClick={isMobile ? undefined : () => void onPlay(audio)}
+            onDoubleClick={() => void onPlay(audio)}
           >
             <div className="flex min-w-0">
               <div className="w-12 shrink-0 fc text-sm">

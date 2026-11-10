@@ -23,7 +23,6 @@ const [, row] = Children.toArray(list.props.children) as ReactElement<{
   onDoubleClick?: () => void
 }>[]
 
-row.props.onClick?.()
-assert.deepEqual(played, platform === 'desktop' ? [] : [song])
+assert.equal(row.props.onClick, undefined)
 row.props.onDoubleClick?.()
 assert.deepEqual(played, [song])
