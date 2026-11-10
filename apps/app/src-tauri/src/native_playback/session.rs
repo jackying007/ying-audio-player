@@ -858,14 +858,6 @@ pub(crate) fn init() -> tauri::plugin::TauriPlugin<tauri::Wry> {
     let builder = tauri::plugin::Builder::new("native-playback");
     #[cfg(any(target_os = "windows", target_os = "macos"))]
     let builder = builder.on_event(|app, event| match event {
-        tauri::RunEvent::WindowEvent {
-            label,
-            event: tauri::WindowEvent::CloseRequested { api, .. },
-            ..
-        } if label == "main" => {
-            api.prevent_close();
-            request_exit(app);
-        }
         tauri::RunEvent::ExitRequested { api, .. }
             if app.state::<Control>().exit.load(Ordering::Acquire) != 2 =>
         {
@@ -922,6 +914,49 @@ mod tests {
             "link": "", "lrcLink": "", "hasLyrics": false, "hasCover": false
         }))
         .unwrap()
+    }
+
+    #[cfg(any(target_os = "windows", target_os = "macos"))]
+    #[tokio::test]
+    async fn shutdown_stops_playback_and_releases_the_staged_file() {
+        let (events, mut commands) = mpsc::unbounded_channel();
+        let (sender, inbox) = mpsc::unbounded_channel();
+        let (settings, _) = watch::channel(Connection::default());
+        let mut session = Session::new(
+            None,
+            Engine::Test(events),
+            sender.clone(),
+            settings,
+            http::client(),
+        );
+        session
+            .command(Command::Play {
+                audio: Box::new(song(1)),
+                playlist: None,
+            })
+            .await;
+        assert_eq!(commands.try_recv().unwrap().0, "begin");
+
+        let path = tempfile::NamedTempFile::new().unwrap().into_temp_path();
+        let saved_path = path.to_path_buf();
+        session
+            .prepared(Ok(media::Prepared {
+                file: media::File::Staged(path),
+                lyrics: None,
+                warning: None,
+                cache: None,
+            }))
+            .await;
+        assert_eq!(commands.try_recv().unwrap().0, "load");
+        assert!(saved_path.exists());
+
+        let (reply, response) = oneshot::channel();
+        sender.send(Message::Shutdown(reply)).unwrap();
+        session.run(inbox).await;
+
+        response.await.unwrap();
+        assert_eq!(commands.try_recv().unwrap().0, "stop");
+        assert!(!saved_path.exists());
     }
 
     #[tokio::test]

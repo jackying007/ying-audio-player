@@ -1,3 +1,5 @@
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+mod desktop_tray;
 mod local_audio;
 #[cfg(any(mobile, target_os = "windows", target_os = "macos", test))]
 mod native_playback;
@@ -28,28 +30,15 @@ pub fn run() {
     let builder = builder.plugin(tauri_plugin_ios_files::init());
     #[cfg(any(mobile, target_os = "windows", target_os = "macos"))]
     let builder = builder.plugin(native_playback::init());
-    #[cfg(target_os = "macos")]
-    let builder = builder.setup(|app| {
-        use objc2_app_kit::{NSWindow, NSWindowButton};
-        use tauri::Manager;
-
-        let window = app
-            .get_webview_window("main")
-            .expect("main window is configured");
-        // Setup runs on the main thread, and the webview window owns this NSWindow.
-        let native_window = unsafe { &*window.ns_window()?.cast::<NSWindow>() };
-        // Keep the native rounded frame while using the app's existing header controls.
-        for button in [
-            NSWindowButton::CloseButton,
-            NSWindowButton::MiniaturizeButton,
-            NSWindowButton::ZoomButton,
-        ] {
-            if let Some(button) = native_window.standardWindowButton(button) {
-                button.setHidden(true);
-            }
-        }
-        Ok(())
-    });
+    #[cfg(any(target_os = "windows", target_os = "macos"))]
+    let builder = builder
+        .on_window_event(desktop_tray::on_window_event)
+        .setup(|app| {
+            #[cfg(target_os = "macos")]
+            configure_macos_window(app)?;
+            desktop_tray::init(app);
+            Ok(())
+        });
     builder
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
@@ -58,4 +47,27 @@ pub fn run() {
         .plugin(network_cache::init())
         .run(context)
         .expect("error while running tauri application");
+}
+
+#[cfg(target_os = "macos")]
+fn configure_macos_window(app: &tauri::App) -> tauri::Result<()> {
+    use objc2_app_kit::{NSWindow, NSWindowButton};
+    use tauri::Manager;
+
+    let window = app
+        .get_webview_window("main")
+        .expect("main window is configured");
+    // Setup runs on the main thread, and the webview window owns this NSWindow.
+    let native_window = unsafe { &*window.ns_window()?.cast::<NSWindow>() };
+    // Keep the native rounded frame while using the app's existing header controls.
+    for button in [
+        NSWindowButton::CloseButton,
+        NSWindowButton::MiniaturizeButton,
+        NSWindowButton::ZoomButton,
+    ] {
+        if let Some(button) = native_window.standardWindowButton(button) {
+            button.setHidden(true);
+        }
+    }
+    Ok(())
 }
