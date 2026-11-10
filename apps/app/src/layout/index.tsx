@@ -4,7 +4,7 @@ import { Toaster } from '@/components/ui/sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar'
 import { Separator } from '@/components/ui/separator'
-import { usePlayerOpen } from '@/store/audio-store'
+import { ShowMode, useAudioStore, usePlayerOpen } from '@/store/audio-store'
 import { AppSidebar } from './sidebar'
 import { AppHeader } from './header'
 import { LocalAudioStatus } from './local-audio-status'
@@ -13,12 +13,16 @@ import { AndroidNavigation } from './android-navigation'
 
 export function AppLayout() {
   const playerOpen = usePlayerOpen()
+  const fullscreenLyrics = useAudioStore(state => state.showMode === ShowMode.Fullscreen)
 
   return (
     <TooltipProvider>
       <AndroidNavigation />
       <Toaster />
-      <SidebarProvider className={isIOS ? 'pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]' : undefined}>
+      <SidebarProvider
+        disableSwipe={fullscreenLyrics}
+        className={isIOS ? 'pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]' : undefined}
+      >
         <AppSidebar />
         <SidebarInset className="h-svh">
           <AppHeader />

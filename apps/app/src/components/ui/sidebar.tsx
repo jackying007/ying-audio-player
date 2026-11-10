@@ -4,6 +4,8 @@ import { cn } from 'cn'
 import { Slot } from 'radix-ui'
 
 import { useIsMobile } from '@/hooks/use-mobile'
+import { isMobile as isMobilePlatform } from '@/lib/platform'
+import { listenForSidebarSwipe } from '@/lib/sidebar-swipe'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Separator } from '@/components/ui/separator'
@@ -44,6 +46,7 @@ function SidebarProvider({
   defaultOpen = true,
   open: openProp,
   onOpenChange: setOpenProp,
+  disableSwipe = false,
   className,
   style,
   children,
@@ -52,6 +55,7 @@ function SidebarProvider({
   defaultOpen?: boolean
   open?: boolean
   onOpenChange?: (open: boolean) => void
+  disableSwipe?: boolean
 }) {
   const isMobile = useIsMobile()
   const [openMobile, setOpenMobile] = React.useState(false)
@@ -79,6 +83,17 @@ function SidebarProvider({
   const toggleSidebar = React.useCallback(() => {
     return isMobile ? setOpenMobile(open => !open) : setOpen(open => !open)
   }, [isMobile, setOpen, setOpenMobile])
+
+  const getSwipeSidebar = React.useEffectEvent(() => ({
+    disabled: disableSwipe,
+    isDrawer: isMobile,
+    open: isMobile ? openMobile : open,
+    setOpen: isMobile ? setOpenMobile : setOpen
+  }))
+
+  React.useEffect(() => {
+    if (!disableSwipe) return listenForSidebarSwipe(document, isMobilePlatform, getSwipeSidebar)
+  }, [isMobile, disableSwipe])
 
   // Adds a keyboard shortcut to toggle the sidebar.
   React.useEffect(() => {
@@ -165,7 +180,10 @@ function Sidebar({
           data-sidebar="sidebar"
           data-slot="sidebar"
           data-mobile="true"
-          className="w-(--sidebar-width) bg-sidebar p-0 text-sidebar-foreground [&>button]:hidden"
+          className={cn(
+            'w-(--sidebar-width) bg-sidebar p-0 text-sidebar-foreground [&>button]:hidden',
+            isMobilePlatform && 'touch-pan-y touch-pinch-zoom'
+          )}
           style={
             {
               '--sidebar-width': SIDEBAR_WIDTH_MOBILE
