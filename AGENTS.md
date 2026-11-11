@@ -134,7 +134,7 @@ iOS 和 Android 在主界面单指右滑展开侧边栏、左滑关闭，松手�
 
 普通前端 `check` 不含测试；Rust 检查不由 Turbo 执行；根目录 `build` 不打桌面包或部署 Worker。缺少 `.git` 导致 Turbo 失败时，可用 `bun run --filter '*' check`（或 `lint` / `build`）。
 
-- Windows 桌面交付默认为 Release 绿色版，交付目录 `apps/app/src-tauri/target/release/portable` 仅保留压缩包，沿用 target 的现有忽略规则。压缩包按 `ying-audio-player-<版本>-windows-x64-portable.zip` 命名，版本读取 `src-tauri/tauri.conf.json`。包内为 `YingAudioPlayer/嘤嘤播放器.exe`，主程序名取自同一配置的 `productName`。仅打包程序文件，避免混入运行后生成的索引、设置或音乐缓存。
+- Windows 桌面交付默认为 Release 绿色版，交付目录 `apps/app/src-tauri/target/release/portable` 仅保留压缩包，沿用 target 的现有忽略规则。压缩包按 `ying-audio-player-<版本>-windows-x64-portable.zip` 命名，版本读取 `src-tauri/tauri.conf.json`。包内为 `Ying Audio Player/嘤嘤播放器.exe`，主程序名取自同一配置的 `productName`。仅打包程序文件，避免混入运行后生成的索引、设置或音乐缓存。
 - macOS 在 `apps/app` 执行 `bun run mac:build`，默认按当前机器架构构建 Release DMG，输出到 `apps/app/src-tauri/target/release/bundle/dmg/`。打开 DMG 后先将应用拖到可写目录，再启动播放器。
 
 - 桌面回归：导入、刷新及重启恢复；本地/网络播放控制、三种播放模式和歌词；重复同步跳过、只改歌词、仅元数据变化、覆盖正在播放的歌曲、缺失文件、断网及错误密钥。
