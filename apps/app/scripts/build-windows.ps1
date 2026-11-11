@@ -20,7 +20,7 @@ try {
     Add-Type -AssemblyName System.IO.Compression, System.IO.Compression.FileSystem
     $zip = [System.IO.Compression.ZipFile]::Open("$archive.tmp", [System.IO.Compression.ZipArchiveMode]::Create)
     try {
-        [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile($zip, $executable, 'YingAudioPlayer/YingAudioPlayer.exe', [System.IO.Compression.CompressionLevel]::Optimal) | Out-Null
+        [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile($zip, $executable, "YingAudioPlayer/$($config.productName).exe", [System.IO.Compression.CompressionLevel]::Optimal) | Out-Null
     } finally {
         $zip.Dispose()
     }
