@@ -34,6 +34,9 @@ class TestStatement {
     return this
   }
   execute() {
+    if (/^select\b/i.test(this.sql)) {
+      return { success: true, results: this.db.sqlite.prepare(this.sql).all(...this.values) }
+    }
     return { success: true, meta: this.db.sqlite.prepare(this.sql).run(...this.values) }
   }
   async run() {
@@ -235,10 +238,38 @@ describe('fixed-path audio API', () => {
     await cleanupAudio(createDb(env.D1), env.R2)
     expect(await createDb(env.D1).select().from(audioGarbageTable)).toEqual([])
   })
+  test('repeated folder creation preserves the next ID and matches names exactly', async () => {
+    const first = await folder("我的 Rock 'n' Roll")
+    expect(await folder(first.name)).toEqual(first)
+    expect(await folder(first.name)).toEqual(first)
+    expect(await (await request('/folder/list')).json()).toEqual([first])
+    expect((await request('/folder', 'POST', { name: '../bad' })).status).toBe(400)
+    expect((await folder(first.name.toLowerCase())).id).toBe(first.id + 1)
+  })
+  test('concurrent folder creation allocates one ID per distinct name', async () => {
+    const [a, b, sameA, sameB, againA] = await Promise.all([
+      folder('A'),
+      folder('B'),
+      folder('A'),
+      folder('B'),
+      folder('A')
+    ])
+    expect([sameA, againA]).toEqual([a, a])
+    expect(sameB).toEqual(b)
+    expect(await (await request('/folder/list')).json()).toEqual([a, b].sort((left, right) => left.id - right.id))
+    expect((await folder('C')).id).toBe(Math.min(a.id, b.id) + 2)
+  })
+  test('repeated folder creation preserves a sequence with historical gaps', async () => {
+    const first = await folder()
+    db.sqlite.run('INSERT INTO folder (id, name) VALUES (?, ?)', [10, '已删除'])
+    db.sqlite.run('DELETE FROM folder WHERE id = ?', [10])
+    expect(await folder(first.name)).toEqual(first)
+    expect((await folder('新文件夹')).id).toBe(11)
+  })
   test('deletes empty folders and permits recreating the same name with a new ID', async () => {
     const f = await folder()
     expect(await (await request(`/folder/${f.id}`, 'DELETE')).json()).toEqual({ ok: true })
-    expect((await folder()).id).not.toBe(f.id)
+    expect((await folder()).id).toBeGreaterThan(f.id)
   })
   test('folder deletion rolls back records and queued keys together when the transaction fails', async () => {
     const f = await folder()

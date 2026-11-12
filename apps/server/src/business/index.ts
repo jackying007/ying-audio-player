@@ -61,8 +61,15 @@ api.get('/folder/list', async c => c.json(await c.get('db').select().from(folder
 api.post('/folder', zValidator('json', createFolderDto), async c => {
   const { name } = c.req.valid('json')
   const db = c.get('db')
-  await db.insert(folderTable).values({ name }).onConflictDoNothing()
-  return c.json(await db.select().from(folderTable).where(eq(folderTable.name, name)).get())
+  // Skip the insert entirely for existing names so SQLite does not advance the ID sequence.
+  const [, [folder]] = await db.batch([
+    db.run(sql`INSERT INTO ${folderTable} (name)
+      SELECT ${name} WHERE NOT EXISTS (
+        SELECT 1 FROM ${folderTable} WHERE ${folderTable.name} = ${name}
+      )`),
+    db.select().from(folderTable).where(eq(folderTable.name, name))
+  ])
+  return c.json(folder)
 })
 api.delete('/folder/:id', zParamId, async c => {
   const { id } = c.req.valid('param')
