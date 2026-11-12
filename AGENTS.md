@@ -112,7 +112,8 @@ iOS 和 Android 在主界面单指右滑展开侧边栏、左滑关闭，松手�
 - `folder` 保存文件夹；`audio` 保存已发布的元数据、R2 引用和音频 hash 与歌词 hash。R2 key 为 `文件夹名/去扩展名文件名/audio|lyrics|cover`；不保留历史对象。音频/封面 URL 使用音频 `hash`，歌词 URL 使用 `lyricsHash` 作为 `hash` 查询参数，区分缓存并拒绝过期请求。
 - 创建上传会话时在 JSON 请求体中传入 `folderId`。`audioUpload` 保存待发布元数据、hash 和复用/新上传的对象引用；其 hash 用于本次上传校验，`audio` 的 hash 用于下次比较。上传 hash 必填；同曲最多一个未过期待提交会话。上传记录保存必需文件及完成状态，旧对象存在不能代替本次上传完成。
 - D1 与 R2 不共享事务：文件齐全后通过 Drizzle `db.batch` 原子更新歌曲、旧文件清理队列及提交标记。保留幂等、过期和并发检查；固定路径覆盖前设置 `updating` 并阻止媒体读取，提交后恢复；失败不回滚旧文件，释放失败会话以便立即重试；失败或过期后的下一次同步强制重传。D1 限制正常同曲并发，删除/过期和在途请求的极端交错仍可能冲突。
-- `audioGarbage` 仅保存待删除 R2 key。每小时清理替换的旧文件及超过 30 分钟的上传记录/暂存对象；删除前检查当前歌曲和未过期待提交上传的引用，删除失败保留队列重试。R2 桶保持私有。
+- 上传会话从 `createdAt` 起超过 5 分钟即过期；再次同步会清理所在文件夹的过期未提交会话并重新上传，包括残留 `writing_audio` 等写入标记的会话。
+- `audioGarbage` 仅保存待删除 R2 key。每小时清理替换的旧文件及超过 5 分钟的上传记录/暂存对象；删除前检查当前歌曲和未过期待提交上传的引用，删除失败保留队列重试。R2 桶保持私有。
 - 数据库访问由 `src/db/middleware.ts` 配置的 Drizzle 实例提供；接口通过 `c.get('db')` 获取，定时任务通过 `createDb` 初始化。
 - `business/dto.ts` 集中定义请求校验，数值 ID 为正安全整数，上传 ID 由服务端生成 UUID。`app.error.handler.ts` 统一处理 HTTP 异常。
 - 服务端请求的 Zod schema 校验统一使用 `business/base.validator.ts` 导出的 `zValidator` 中间件，通过 `c.req.valid(...)` 获取校验后的数据；不要在路由中手写 `safeParse` / `parse` 及校验错误处理。

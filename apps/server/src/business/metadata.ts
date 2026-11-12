@@ -1,5 +1,5 @@
 export const songName = (filename: string) => filename.replace(/\.mp3$/i, '')
-export const uploadSessionTtlMs = 30 * 60 * 1000
+export const uploadSessionTtlMs = 5 * 60 * 1000
 export const uploadLimits = { audio: 50 * 1024 * 1024, lyrics: 1024 * 1024, cover: 10 * 1024 * 1024 }
 export type FileKind = keyof typeof uploadLimits
 export const fileKinds = Object.keys(uploadLimits) as FileKind[]

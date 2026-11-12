@@ -204,28 +204,47 @@ describe('fixed-path audio API', () => {
     await publishHashed(f.id)
     const expired = await upload(f.id, { filename: 'expired.mp3' })
     await files(expired)
-    db.sqlite.prepare('UPDATE audioUpload SET createdAt = ? WHERE id = ?').run(Date.now() - 31 * 60 * 1000, expired)
+    db.sqlite.prepare('UPDATE audioUpload SET createdAt = ? WHERE id = ?').run(Date.now() - 6 * 60 * 1000, expired)
     await cleanupAudio(createDb(env.D1), env.R2)
     expect(await createDb(env.D1).select().from(audioUploadTable)).toHaveLength(1)
     expect(await createDb(env.D1).select().from(audioGarbageTable)).toEqual([])
     expect([...bucket.objects.keys()].sort()).toEqual(['收藏/音乐/audio', '收藏/音乐/cover', '收藏/音乐/lyrics'])
     await cleanupAudio(createDb(env.D1), env.R2)
   })
-  test('uploads remain usable at 29 minutes and expire at 31 minutes', async () => {
+  test('uploads remain usable at 4 minutes and expire at 6 minutes', async () => {
     const f = await folder()
     const id = await upload(f.id)
     const age = (minutes: number) =>
       db.sqlite.prepare('UPDATE audioUpload SET createdAt = ? WHERE id = ?').run(Date.now() - minutes * 60 * 1000, id)
-    age(29)
+    age(4)
     await cleanupAudio(createDb(env.D1), env.R2)
     expect(await createDb(env.D1).select().from(audioUploadTable)).toHaveLength(1)
     await files(id)
-    age(31)
+    age(6)
     expect((await request(`/upload/${id}/audio`, 'PUT', 'music')).status).toBe(404)
     expect((await request(`/upload/${id}/commit`, 'POST')).status).toBe(409)
     const next = await upload(f.id)
     expect(next).not.toBe(id)
     expect((await request(`/upload/${id}/commit`, 'POST')).status).toBe(404)
+  })
+  test('retry replaces an abandoned writing claim after five minutes', async () => {
+    const f = await folder()
+    const id = await upload(f.id)
+    const body = { ...metadata, folderId: f.id, hash: hash(fileContents.audio), lyricsHash: hash(fileContents.lyrics) }
+    db.sqlite.run('UPDATE audioUpload SET uploadedFiles = ?, createdAt = ? WHERE id = ?', [
+      JSON.stringify(['writing_audio']),
+      Date.now() - 4 * 60 * 1000,
+      id
+    ])
+    expect((await request('/upload', 'POST', body)).status).toBe(409)
+    db.sqlite.run('UPDATE audioUpload SET createdAt = ? WHERE id = ?', [Date.now() - 5 * 60 * 1000 - 1000, id])
+    const next = await upload(f.id)
+    expect(next).not.toBe(id)
+    expect((await request(`/upload/${id}/audio`, 'PUT', 'music')).status).toBe(404)
+    expect((await request(`/upload/${id}/commit`, 'POST')).status).toBe(404)
+    await files(next)
+    expect((await request(`/upload/${next}/commit`, 'POST')).status).toBe(200)
+    expect(await audios(f.id)).toHaveLength(1)
   })
   test('cleanup reports failures and retains queued resources for retry', async () => {
     await createDb(env.D1).insert(audioGarbageTable).values({ key: 'orphan' })
