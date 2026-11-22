@@ -42,9 +42,11 @@ export function Lyric() {
     if (!currentLrc) return {}
     const map: Record<string, string[]> = {}
     currentLrc.split('\n').forEach(el => {
-      const time = el.substring(1, 10)
-      const content = el.substring(11)
-      map[time] = [...(map?.[time] || []), content]
+      const match = el.match(/^\[(\d{2}:\d{2}(?:\.\d+)?)\](.*)$/s)
+      if (match) {
+        const [, time, content] = match
+        map[time] = [...(map?.[time] || []), content]
+      }
     })
     return map
   }, [currentLrc])
